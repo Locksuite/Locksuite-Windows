@@ -7,7 +7,7 @@
 ; Luego compilar este script con ISCC.
 
 #define MyAppName "LockSuite Windows"
-#define MyAppVersion "0.5.0"
+#define MyAppVersion "0.5.1"
 #define MyAppPublisher "LockSuite Community"
 #define MyAppURL "https://github.com/CHKI541/Locksuite-Windows"
 #define MyAppExeName "LockSuite.UI.exe"
@@ -73,6 +73,17 @@ Root: HKLM; Subkey: "SOFTWARE\Policies\Google\Chrome"; ValueType: string; ValueN
 Root: HKLM; Subkey: "SOFTWARE\Policies\Microsoft\Edge"; ValueType: string; ValueName: "DnsOverHttpsMode"; ValueData: "off"; Flags: uninsdeletevalue
 Root: HKLM; Subkey: "SOFTWARE\Policies\Mozilla\Firefox\DNSOverHTTPS"; ValueType: dword; ValueName: "Enabled"; ValueData: "0"; Flags: uninsdeletevalue
 Root: HKLM; Subkey: "SOFTWARE\Policies\Mozilla\Firefox\DNSOverHTTPS"; ValueType: dword; ValueName: "Locked"; ValueData: "1"; Flags: uninsdeletevalue uninsdeletekeyifempty
+
+; --- Limpieza automatica de enlaces de rastreo y redireccionadores (google.com/url) ---
+; Google envuelve los enlaces compartidos en Google Chat, Gmail, etc. en 'google.com/url?q=...'.
+; Al bloquear google.com para impedir el buscador y Gemini, esos enlaces quedan bloqueados.
+; Esta directiva instala de forma silenciosa la extension de codigo abierto "Don't track me Google"
+; (de Rob Wu, equipo Chromium/Mozilla) en Chrome, Edge y Firefox, la cual desenvuelve los enlaces al instante
+; permitiendo abrir directamente el destino (ej. Google Drive) sin pasar por el buscador de Google.
+Root: HKLM; Subkey: "SOFTWARE\Policies\Google\Chrome\ExtensionInstallForcelist"; ValueType: string; ValueName: "1"; ValueData: "gdbofhhdmcladcmmfjolgndfkpobecpg;https://clients2.google.com/service/update2/crx"; Flags: uninsdeletevalue
+Root: HKLM; Subkey: "SOFTWARE\Policies\Microsoft\Edge"; ValueType: dword; ValueName: "ControlDefaultStateOfAllowExtensionFromOtherStoresSettingEnabled"; ValueData: "1"; Flags: uninsdeletevalue
+Root: HKLM; Subkey: "SOFTWARE\Policies\Microsoft\Edge\ExtensionInstallForcelist"; ValueType: string; ValueName: "1"; ValueData: "gdbofhhdmcladcmmfjolgndfkpobecpg;https://clients2.google.com/service/update2/crx"; Flags: uninsdeletevalue
+Root: HKLM; Subkey: "SOFTWARE\Policies\Mozilla\Firefox\Extensions\Install"; ValueType: string; ValueName: "1"; ValueData: "https://addons.mozilla.org/firefox/downloads/latest/dont-track-me-google1/latest.xpi"; Flags: uninsdeletevalue
 
 [Icons]
 Name: "{autoprograms}\LockSuite"; Filename: "{app}\ui\{#MyAppExeName}"

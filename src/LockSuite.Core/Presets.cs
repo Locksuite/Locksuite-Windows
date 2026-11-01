@@ -238,6 +238,8 @@ public static class Presets
         "update.googleapis.com",            // actualizador de Chrome y de sus componentes (Root Store, CRLSet)
         "dl.google.com",                    // descargas de Chrome
         "edgedl.me.gvt1.com",               // descargas de Chrome y componentes
+        "clients2.google.com",              // API de extensiones de Chrome/Edge
+        "clients2.googleusercontent.com",   // Descarga de paquetes CRX de extensiones
         // Mozilla Firefox
         "firefox.settings.services.mozilla.com",       // Remote Settings: intermedios, CRLite, revocaciones
         "firefox-settings-attachments.cdn.mozilla.net", // adjuntos de Remote Settings (certificados intermedios)
@@ -245,6 +247,8 @@ public static class Presets
         "aus5.mozilla.org",                             // chequeo de actualizaciones
         "download.mozilla.org",                         // descarga de actualizaciones (redirige al CDN)
         "download-installer.cdn.mozilla.net",
+        "addons.mozilla.org",                           // catalogo de extensiones de Firefox
+        "addons.cdn.mozilla.net",                       // CDN de paquetes XPI de extensiones
     };
 
     /// <summary>

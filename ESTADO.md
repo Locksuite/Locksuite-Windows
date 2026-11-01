@@ -1,8 +1,8 @@
 # Estado del proyecto — LockSuite Windows
 
-Versión actual: **0.5.0 — Construida, testeada al 100% (436/436 tests), empaquetada y publicada en GitHub Releases.** Corrige el bug crítico de marshalling de puntero en WFP (`FWP_VALUE0.uint64`) que provocaba la caída al "Modo simulación", cierra vectores de evasión (`DOTNET_STARTUP_HOOKS`, herencia débil en ACLs de ProgramData, túneles UDP en puertos NTP/DHCP), agrega verificación de TransactionId y conexión en DNS upstream, guarda contra sufijos públicos peligrosos (`co.il`, `com.ar`, etc.), y activa la actualización automática de clientes.
-Versión anterior: **0.4.1 — Construida, testeada al 100% (372/372 tests) y empaquetada.**
-Última actualización: 2026-10-27, sesión 13 (Auditoría de seguridad y evasión, corrección de marshalling en WFP, hardening de ACLs/IPC/DNS, 436 tests en verde y publicación de Release v0.5.0 para auto-actualización).
+Versión actual: **0.5.1 — Construida, testeada al 100% (439/439 tests), empaquetada y publicada en GitHub Releases.** Añade despliegue forzado por directiva de la extensión de código abierto "Don't track me Google" (Chromium/Mozilla) para desenvolver automáticamente enlaces de rastreo y redireccionadores (`google.com/url?q=...`) en Google Chat, Gmail, etc., permitiendo abrir enlaces directos a Google Drive sin habilitar el buscador ni requerir copiado manual. Permite los endpoints de descarga de extensiones en `BrowserUpdateDomains`.
+Versión anterior: **0.5.0 — Construida, testeada al 100% (436/436 tests) y empaquetada.**
+Última actualización: 2026-10-31, sesión 14 (Despliegue automático de des-envoltorio de URLs de Google en Chrome/Edge/Firefox, ampliación de BrowserUpdateDomains, 439 tests verdes y publicación Release v0.5.1).
 
 ## 0. Contexto y propósito (importante, leer esto primero)
 
@@ -212,9 +212,17 @@ Compilación Release, 70/70 tests, publish self-contained, instalador v0.2.0 (73
 - **Resultados:** **436/436 tests pasando al 100% (verde)** (373 Core + 63 Service).
 - **Publicación:** Compilación de binarios autocontenidos, generación de instalador Inno Setup (`LockSuiteSetup-0.5.0.exe`), cálculo de hash SHA-256 en `SHA256SUMS.txt`, y publicación de GitHub Release `v0.5.0` para despliegue de actualización automática a usuarios.
 
+### Sesión 14 — 2026-10-31 (Des-envoltorio transparente de enlaces google.com/url sin abrir Google Search)
+- **Problema atendido:** Al tener bloqueado Google (`www.google.com`) y permitido Google Drive u otros sitios específicos, los enlaces compartidos por Google Chat o Gmail no abrían porque Google envuelve todas las URLs salientes en redireccionadores de rastreo (`https://www.google.com/url?q=...`). A nivel de red/DNS es imposible permitir esa ruta sin abrir todo el buscador de Google.
+- **Solución implementada:**
+  - En `LockSuiteSetup.iss`: Se agregaron políticas de registro para forzar silenciosamente la extensión de código abierto *"Don't track me Google"* (de Rob Wu, miembro de los equipos de Chromium y Mozilla) en **Google Chrome** (`ExtensionInstallForcelist`), **Microsoft Edge** (`ControlDefaultStateOfAllowExtensionFromOtherStoresSettingEnabled` + `ExtensionInstallForcelist`) y **Mozilla Firefox** (`Extensions\Install`).
+  - En `src/LockSuite.Core/Presets.cs`: Se agregaron los endpoints oficiales para la descarga y actualización de extensiones (`clients2.google.com`, `clients2.googleusercontent.com`, `addons.mozilla.org`, `addons.cdn.mozilla.net`) al paquete `BrowserUpdateDomains`.
+  - En `tests/LockSuite.Core.Tests/PresetsExtraTests.cs`: Nuevas pruebas verificando que estos dominios son patrones válidos y están permitidos con el paquete de navegadores, sin debilitar el bloqueo de Google Search o Gemini.
+- **Resultados:** **439/439 tests pasando al 100% (verde)** (376 Core + 63 Service).
+
 ---
 
 ## 8. Próximo paso
 
-1. Monitorear el despliegue automático de la actualización v0.5.0 en clientes con v0.4.x.
+1. Publicar el Release v0.5.1 en GitHub para que los clientes activos reciban la actualización automática.
 2. Evaluar la fase 2 (inspección de **SNI**) de `docs/ANALISIS_VIABILIDAD.md` §2.4.

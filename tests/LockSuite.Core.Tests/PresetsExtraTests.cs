@@ -75,8 +75,11 @@ public class PresetsExtraTests
     [InlineData("msedge.api.cdp.microsoft.com")]
     [InlineData("update.googleapis.com")]
     [InlineData("dl.google.com")]
+    [InlineData("clients2.google.com")]
+    [InlineData("clients2.googleusercontent.com")]
     [InlineData("firefox.settings.services.mozilla.com")]
     [InlineData("firefox-settings-attachments.cdn.mozilla.net")]
+    [InlineData("addons.mozilla.org")]
     public void BrowserUpdates_AllowsBrowserAndCertListUpdates(string host)
         => Assert.True(AllEnabled().IsAllowed(host), host);
 
@@ -89,6 +92,7 @@ public class PresetsExtraTests
             "lencr.org", "amazontrust.com", "ssl.com", "ctldl.windowsupdate.com",
             "firefox-settings-attachments.cdn.mozilla.net", "content-signature-2.cdn.mozilla.net",
             "msedge.api.cdp.microsoft.com", "ka-f.fontawesome.com", "ocsp-certum.com",
+            "clients2.google.com", "clients2.googleusercontent.com", "addons.mozilla.org", "addons.cdn.mozilla.net"
         })
             Assert.True(DomainMatcher.IsValidPattern(d), d);
     }
