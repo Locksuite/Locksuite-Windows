@@ -12,6 +12,7 @@ public sealed class DnsRecord
     public ushort Class { get; set; }
     public uint Ttl { get; set; }
     public IPAddress? IpAddress { get; set; }
+    public string CName { get; set; } = "";
 }
 
 public sealed class DnsPacket
@@ -69,6 +70,7 @@ public sealed class DnsPacket
                 offset += 10;
 
                 IPAddress? ip = null;
+                string cname = "";
                 if (type == TypeA && rdLength == 4 && offset + 4 <= length)
                 {
                     byte[] ipBytes = new byte[4];
@@ -81,6 +83,11 @@ public sealed class DnsPacket
                     Buffer.BlockCopy(buffer, offset, ipBytes, 0, 16);
                     ip = new IPAddress(ipBytes);
                 }
+                else if (type == TypeCNAME && rdLength > 0 && offset + rdLength <= length)
+                {
+                    int cnameOffset = offset;
+                    cname = ReadDomainName(buffer, ref cnameOffset, length);
+                }
 
                 offset += rdLength;
 
@@ -90,7 +97,8 @@ public sealed class DnsPacket
                     Type = type,
                     Class = cls,
                     Ttl = ttl,
-                    IpAddress = ip
+                    IpAddress = ip,
+                    CName = cname
                 });
             }
 

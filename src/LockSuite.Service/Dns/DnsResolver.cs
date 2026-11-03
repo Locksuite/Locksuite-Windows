@@ -216,14 +216,35 @@ public sealed class DnsResolver : IDisposable
                 var responsePacket = DnsPacket.Parse(upstreamResponse, upstreamResponse.Length);
                 if (responsePacket != null)
                 {
+                    // Validación anti-spoofing y seguimiento de cadena CNAME
+                    var allowedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { domain };
+                    foreach (var ans in responsePacket.Answers)
+                    {
+                        if (ans.Type == DnsPacket.TypeCNAME && !string.IsNullOrEmpty(ans.CName) && allowedNames.Contains(ans.Name))
+                        {
+                            allowedNames.Add(ans.CName);
+                        }
+                    }
+
                     foreach (var ans in responsePacket.Answers)
                     {
                         if (ans.IpAddress != null)
                         {
-                            TimeSpan duration = TimeSpan.FromSeconds(Math.Max(ans.Ttl, MinTtlSeconds));
-                            _wfpManager.AllowIpTemporary(ans.IpAddress, duration);
-                            _logger.LogInformation("Regla dinámica autorizada para IP {IP} ({Domain}), TTL: {Sec}s",
-                                ans.IpAddress, domain, (int)duration.TotalSeconds);
+                            bool isRelatedDomain = allowedNames.Contains(ans.Name) ||
+                                                   ans.Name.EndsWith("." + domain, StringComparison.OrdinalIgnoreCase);
+
+                            if (isRelatedDomain && !IsSpecialOrBogusIp(ans.IpAddress))
+                            {
+                                TimeSpan duration = TimeSpan.FromSeconds(Math.Max(ans.Ttl, MinTtlSeconds));
+                                _wfpManager.AllowIpTemporary(ans.IpAddress, duration);
+                                _logger.LogInformation("Regla dinámica autorizada para IP {IP} ({Domain}), TTL: {Sec}s",
+                                    ans.IpAddress, domain, (int)duration.TotalSeconds);
+                            }
+                            else if (!isRelatedDomain)
+                            {
+                                _logger.LogWarning("Respuesta DNS descartada por dominio no solicitado: {Name} (esperado: {Domain})",
+                                    ans.Name, domain);
+                            }
                         }
                     }
                 }
@@ -308,6 +329,29 @@ public sealed class DnsResolver : IDisposable
         {
             _logger.LogWarning(ex, "Error al enviar respuesta DNS al cliente {Endpoint}", clientEndpoint);
         }
+    }
+
+    private static bool IsSpecialOrBogusIp(IPAddress ip)
+    {
+        if (IPAddress.IsLoopback(ip)) return true;
+        if (ip.Equals(IPAddress.Any) || ip.Equals(IPAddress.None) || ip.Equals(IPAddress.IPv6Any) || ip.Equals(IPAddress.IPv6None)) return true;
+
+        byte[] bytes = ip.GetAddressBytes();
+        if (bytes.Length == 4)
+        {
+            // 0.0.0.0/8
+            if (bytes[0] == 0) return true;
+            // 255.255.255.255
+            if (bytes[0] == 255 && bytes[1] == 255 && bytes[2] == 255 && bytes[3] == 255) return true;
+            // 224.0.0.0/4 (multicast)
+            if ((bytes[0] & 0xF0) == 0xE0) return true;
+        }
+        else if (bytes.Length == 16)
+        {
+            // Multicast IPv6 (ff00::/8)
+            if (bytes[0] == 0xFF) return true;
+        }
+        return false;
     }
 
     public void Dispose()

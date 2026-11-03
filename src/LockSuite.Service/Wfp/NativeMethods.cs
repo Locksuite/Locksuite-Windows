@@ -31,8 +31,9 @@ public struct FWPM_SUBLAYER0
 {
     public Guid subLayerKey;
     public FWPM_DISPLAY_DATA0 displayData;
-    public uint flags;
-    public IntPtr defaultSD;
+    public ushort flags;
+    public IntPtr providerKey;
+    public FWP_BYTE_BLOB providerData;
     public ushort weight;
 }
 
@@ -121,10 +122,11 @@ public struct FWPM_FILTER0
     public uint numFilterConditions;
     public IntPtr filterCondition;
     public FWPM_ACTION0 action;
-    public ulong context;
-    public IntPtr reserved;
-    public ulong filterId;
-    public FWP_VALUE0 effectiveWeight;
+    private readonly uint _contextPad; // 4 bytes de alineacion para la union en x64 (offset 148..152)
+    public Guid providerContextKey;    // 16 bytes (offset 152..168)
+    public IntPtr reserved;            // 8 bytes (offset 168..176)
+    public ulong filterId;             // 8 bytes (offset 176..184)
+    public FWP_VALUE0 effectiveWeight; // 16 bytes (offset 184..200)
 }
 
 public static class NativeMethods

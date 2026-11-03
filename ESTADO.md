@@ -1,8 +1,8 @@
 # Estado del proyecto — LockSuite Windows
 
-Versión actual: **0.5.1 — Construida, testeada al 100% (439/439 tests), empaquetada y publicada en GitHub Releases.** Añade despliegue forzado por directiva de la extensión de código abierto "Don't track me Google" (Chromium/Mozilla) para desenvolver automáticamente enlaces de rastreo y redireccionadores (`google.com/url?q=...`) en Google Chat, Gmail, etc., permitiendo abrir enlaces directos a Google Drive sin habilitar el buscador ni requerir copiado manual. Permite los endpoints de descarga de extensiones en `BrowserUpdateDomains`.
-Versión anterior: **0.5.0 — Construida, testeada al 100% (436/436 tests) y empaquetada.**
-Última actualización: 2026-10-31, sesión 14 (Despliegue automático de des-envoltorio de URLs de Google en Chrome/Edge/Firefox, ampliación de BrowserUpdateDomains, 439 tests verdes y publicación Release v0.5.1).
+Versión actual: **0.5.2 — Construida, testeada al 100% (441/441 tests), empaquetada y publicada en GitHub Releases.** Auditoría de seguridad y cierre definitivo de vectores de evasión: corrección integral de las estructuras P/Invoke x64 de WFP (`FWPM_SUBLAYER0` y `FWPM_FILTER0`), corrección de GUIDs y constantes de kernel en `WfpConstants` (causa raíz por la que fallaba la instalación directa de WFP y caía en modo simulación), restricción estricta de puertos en la regla AppID del servicio (DNS 53, HTTPS 443, HTTP 80), validación anti-envenenamiento de respuestas DNS y seguimiento de cadenas CNAME, y registro del servicio en `SafeBoot\Network` para protección en Modo Seguro de Windows.
+Versión anterior: **0.5.1 — Construida, testeada al 100% (439/439 tests) y empaquetada.**
+Última actualización: 2026-11-03, sesión 15 (Auditoría exhaustiva de evasión y bugs, corrección crítica de structs y GUIDs WFP a estándares exactos de Windows SDK, endurecimiento anti-túneles en AppID, 441 tests verdes y release v0.5.2).
 
 ## 0. Contexto y propósito (importante, leer esto primero)
 
@@ -220,9 +220,24 @@ Compilación Release, 70/70 tests, publish self-contained, instalador v0.2.0 (73
   - En `tests/LockSuite.Core.Tests/PresetsExtraTests.cs`: Nuevas pruebas verificando que estos dominios son patrones válidos y están permitidos con el paquete de navegadores, sin debilitar el bloqueo de Google Search o Gemini.
 - **Resultados:** **439/439 tests pasando al 100% (verde)** (376 Core + 63 Service).
 
+### Sesión 15 — 2026-11-03 (Auditoría exhaustiva de evasión, corrección kernel WFP y release v0.5.2)
+- **Causa raíz descubierta (por qué no filtraba en instalación directa):**
+  - En `src/LockSuite.Service/Wfp/NativeMethods.cs`, la estructura `FWPM_SUBLAYER0` estaba truncada y tenía campos erróneos (`defaultSD` inventado, faltando `providerKey` y `providerData`), y `FWPM_FILTER0` le faltaban 8 bytes de padding/union en x64 (192 bytes en vez de los 200 bytes requeridos por la API nativa de Windows).
+  - En `src/LockSuite.Service/Wfp/WfpConstants.cs`, 7 GUIDs de capas y condiciones de WFP (`ALE_AUTH_CONNECT_V4/V6`, `REMOTE_ADDRESS`, `LOCAL_PORT`, `PROTOCOL`, `ALE_APP_ID`, `FLAGS`) tenían valores erróneos no coincidentes con el Windows SDK (`fwpmu.h` / `fwptypes.h`).
+  - Además, `FWP_MATCH_FLAGS_ALL_SET` estaba definido como `8` (que es `FLAGS_NONE_SET`), `FWP_BYTE_BLOB_TYPE` como `14` (es `12`), `FWP_V4_ADDR_MASK` como `16` (es `0x100`), y `FWP_BYTE_ARRAY16_TYPE` como `17` (es `11`).
+  - Debido a esto, al arrancar en Windows real, `InstallBaseFiltersTransacted()` fallaba con código de error nativo en `FwpmSubLayerAdd0` o `FwpmFilterAdd0`, ejecutaba `Rollback()` y pasaba silenciosamente a modo simulación (`_isSimulationMode = true`), sin aplicar ningún bloqueo en el kernel.
+- **Soluciones y endurecimiento implementados:**
+  - **Corrección de structs nativas:** Se ajustó `FWPM_SUBLAYER0` a exactamente 72 bytes y `FWPM_FILTER0` a exactamente 200 bytes, con tests unitarios automatizados que verifican tamaños y offsets contra los estándares del Windows SDK.
+  - **Corrección de GUIDs y constantes:** Se reemplazaron todas las constantes y GUIDs en `WfpConstants.cs` con los valores oficiales de Microsoft.
+  - **Restricción de túneles en AppID:** En `WfpManager.cs`, la regla de salida de `LockSuite.Service.exe` se restringió con condiciones estrictas de puerto: DNS upstream (UDP/TCP 53), actualizaciones HTTPS (TCP 443) y detección de portal cautivo (TCP 80). Ningún payload puede usar el ejecutable del servicio para tunelizar tráfico saliente en puertos arbitrarios.
+  - **Anti-envenenamiento DNS:** En `DnsResolver.cs`, se implementó validación de registros de respuesta contra el dominio consultado y su cadena CNAME legítima, y se filtran IPs inválidas o especiales (loopback, 0.0.0.0, broadcast, multicast).
+  - **Protección contra evasión en Modo Seguro:** En `LockSuiteSetup.iss`, se registró `LockSuiteService` bajo `HKLM\SYSTEM\CurrentControlSet\Control\SafeBoot\Network` para asegurar que el servicio arranque y proteja la red incluso si el usuario reinicia en Modo Seguro con funciones de red.
+- **Resultados:** **441/441 tests pasando al 100% (verde)** (376 Core + 65 Service).
+- **Publicación:** Generación de instalador `LockSuiteSetup-0.5.2.exe`, SHA256SUMS.txt y Release `v0.5.2` en GitHub.
+
 ---
 
 ## 8. Próximo paso
 
-1. Publicar el Release v0.5.1 en GitHub para que los clientes activos reciban la actualización automática.
+1. Monitorear las actualizaciones automáticas de los clientes a la versión v0.5.2.
 2. Evaluar la fase 2 (inspección de **SNI**) de `docs/ANALISIS_VIABILIDAD.md` §2.4.

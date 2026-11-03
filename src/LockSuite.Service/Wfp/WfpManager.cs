@@ -26,23 +26,27 @@ public sealed class WfpManager : IWfpManager
     private static readonly Guid KeyLoopbackV4   = new("9b1d2e01-0001-4a01-8b01-10c6b7e5a001");
     private static readonly Guid KeyLoopbackV6   = new("9b1d2e01-0002-4a01-8b01-10c6b7e5a002");
     private static readonly Guid KeyDhcpV4       = new("9b1d2e01-0003-4a01-8b01-10c6b7e5a003");
-    private static readonly Guid KeyLocalDns     = new("9b1d2e01-0004-4a01-8b01-10c6b7e5a004");
-    private static readonly Guid KeyServiceAppId = new("9b1d2e01-0005-4a01-8b01-10c6b7e5a005");
-    private static readonly Guid KeyBlockV4      = new("9b1d2e01-0006-4a01-8b01-10c6b7e5a006");
-    private static readonly Guid KeyBlockV6      = new("9b1d2e01-0007-4a01-8b01-10c6b7e5a007");
+    private static readonly Guid KeyLocalDns          = new("9b1d2e01-0004-4a01-8b01-10c6b7e5a004");
+    private static readonly Guid KeyServiceAppIdDns   = new("9b1d2e01-0005-4a01-8b01-10c6b7e5a005");
+    private static readonly Guid KeyServiceAppIdHttps = new("9b1d2e01-000e-4a01-8b01-10c6b7e5a00e");
+    private static readonly Guid KeyServiceAppIdHttp  = new("9b1d2e01-000f-4a01-8b01-10c6b7e5a00f");
+    private static readonly Guid KeyBlockV4           = new("9b1d2e01-0006-4a01-8b01-10c6b7e5a006");
+    private static readonly Guid KeyBlockV6           = new("9b1d2e01-0007-4a01-8b01-10c6b7e5a007");
     // Permisos ADITIVOS (best-effort, fuera de la transaccion base): NTP, DHCPv6 y red local.
-    private static readonly Guid KeyNtpV4        = new("9b1d2e01-0008-4a01-8b01-10c6b7e5a008");
-    private static readonly Guid KeyDhcpV6       = new("9b1d2e01-0009-4a01-8b01-10c6b7e5a009");
-    private static readonly Guid KeyLocalNet10   = new("9b1d2e01-000a-4a01-8b01-10c6b7e5a00a");
-    private static readonly Guid KeyLocalNet172  = new("9b1d2e01-000b-4a01-8b01-10c6b7e5a00b");
-    private static readonly Guid KeyLocalNet192  = new("9b1d2e01-000c-4a01-8b01-10c6b7e5a00c");
-    private static readonly Guid KeyLocalNet169  = new("9b1d2e01-000d-4a01-8b01-10c6b7e5a00d");
+    private static readonly Guid KeyNtpV4             = new("9b1d2e01-0008-4a01-8b01-10c6b7e5a008");
+    private static readonly Guid KeyDhcpV6            = new("9b1d2e01-0009-4a01-8b01-10c6b7e5a009");
+    private static readonly Guid KeyLocalNet10        = new("9b1d2e01-000a-4a01-8b01-10c6b7e5a00a");
+    private static readonly Guid KeyLocalNet172       = new("9b1d2e01-000b-4a01-8b01-10c6b7e5a00b");
+    private static readonly Guid KeyLocalNet192       = new("9b1d2e01-000c-4a01-8b01-10c6b7e5a00c");
+    private static readonly Guid KeyLocalNet169       = new("9b1d2e01-000d-4a01-8b01-10c6b7e5a00d");
 
     private static readonly Guid[] LocalNetKeys = { KeyLocalNet10, KeyLocalNet172, KeyLocalNet192, KeyLocalNet169 };
 
     private static readonly Guid[] BaseFilterKeys =
     {
-        KeyLoopbackV4, KeyLoopbackV6, KeyDhcpV4, KeyLocalDns, KeyServiceAppId, KeyBlockV4, KeyBlockV6,
+        KeyLoopbackV4, KeyLoopbackV6, KeyDhcpV4, KeyLocalDns,
+        KeyServiceAppIdDns, KeyServiceAppIdHttps, KeyServiceAppIdHttp,
+        KeyBlockV4, KeyBlockV6,
         KeyNtpV4, KeyDhcpV6, KeyLocalNet10, KeyLocalNet172, KeyLocalNet192, KeyLocalNet169
     };
 
@@ -359,8 +363,10 @@ public sealed class WfpManager : IWfpManager
             // 3. Permit DNS al resolutor local (127.0.0.1:53)
             AddLocalDnsPermitFilter(KeyLocalDns);
 
-            // 4. Permit salida para el ejecutable del servicio (para consultar DNS upstream)
-            AddServiceAppIdPermitFilter(KeyServiceAppId);
+            // 4. Permit salida para el ejecutable del servicio (restringido a DNS 53, HTTPS 443 updates y HTTP 80 portal)
+            AddServiceAppIdPermitFilter(KeyServiceAppIdDns, WfpConstants.PORT_DNS, "DNS Upstream");
+            AddServiceAppIdPermitFilter(KeyServiceAppIdHttps, WfpConstants.PORT_HTTPS, "Updates HTTPS");
+            AddServiceAppIdPermitFilter(KeyServiceAppIdHttp, WfpConstants.PORT_HTTP, "Portal Cautivo HTTP");
 
             // 5. Default-Deny Outbound (IPv4 y IPv6) - Regla terminante de menor peso en la subcapa
             AddDefaultBlockFilter(KeyBlockV4, WfpConstants.FWPM_LAYER_ALE_AUTH_CONNECT_V4, "Default Block Outbound IPv4");
@@ -573,7 +579,8 @@ public sealed class WfpManager : IWfpManager
                 description = "Subcapa de alta prioridad para filtrado de salida LockSuite"
             },
             flags = 0,
-            defaultSD = IntPtr.Zero,
+            providerKey = IntPtr.Zero,
+            providerData = default,
             weight = WfpConstants.LockSuiteSubLayerWeight
         };
 
@@ -762,7 +769,7 @@ public sealed class WfpManager : IWfpManager
         }
     }
 
-    private void AddServiceAppIdPermitFilter(Guid filterKey)
+    private void AddServiceAppIdPermitFilter(Guid filterKey, ushort remotePort, string label)
     {
         string? exePath = Environment.ProcessPath;
         if (string.IsNullOrEmpty(exePath))
@@ -774,13 +781,14 @@ public sealed class WfpManager : IWfpManager
         uint appStatus = NativeMethods.FwpmGetAppIdFromFileName0(exePath, out IntPtr blobPtr);
         if (appStatus != 0 || blobPtr == IntPtr.Zero)
         {
-            _logger.LogWarning("FwpmGetAppIdFromFileName0 falló (0x{Status:X8}). El servicio podría no alcanzar el DNS upstream.", appStatus);
+            _logger.LogWarning("FwpmGetAppIdFromFileName0 falló (0x{Status:X8}). El servicio podría no alcanzar {Label}.", appStatus, label);
             return;
         }
 
         try
         {
-            var condition = new FWPM_FILTER_CONDITION0
+            var conditions = new FWPM_FILTER_CONDITION0[2];
+            conditions[0] = new FWPM_FILTER_CONDITION0
             {
                 fieldKey = WfpConstants.FWPM_CONDITION_ALE_APP_ID,
                 matchType = WfpConstants.FWP_MATCH_EQUAL,
@@ -790,12 +798,28 @@ public sealed class WfpManager : IWfpManager
                     byteBlob = blobPtr
                 }
             };
+            conditions[1] = new FWPM_FILTER_CONDITION0
+            {
+                fieldKey = WfpConstants.FWPM_CONDITION_IP_REMOTE_PORT,
+                matchType = WfpConstants.FWP_MATCH_EQUAL,
+                conditionValue = new FWP_CONDITION_VALUE0
+                {
+                    type = WfpConstants.FWP_UINT16,
+                    uint16 = remotePort
+                }
+            };
 
-            IntPtr condPtr = Marshal.AllocHGlobal(Marshal.SizeOf<FWPM_FILTER_CONDITION0>());
+            int itemSize = Marshal.SizeOf<FWPM_FILTER_CONDITION0>();
+            IntPtr condArrayPtr = Marshal.AllocHGlobal(itemSize * conditions.Length);
             IntPtr weightPtr = IntPtr.Zero;
             try
             {
-                Marshal.StructureToPtr(condition, condPtr, false);
+                for (int i = 0; i < conditions.Length; i++)
+                {
+                    IntPtr itemPtr = IntPtr.Add(condArrayPtr, i * itemSize);
+                    Marshal.StructureToPtr(conditions[i], itemPtr, false);
+                }
+
                 var weightVal = CreateWeight(50, out weightPtr);
 
                 var filter = new FWPM_FILTER0
@@ -803,23 +827,23 @@ public sealed class WfpManager : IWfpManager
                     filterKey = filterKey,
                     displayData = new FWPM_DISPLAY_DATA0
                     {
-                        name = "LockSuite Permit Service AppId",
-                        description = "Permite al propio servicio consultar servidores DNS upstream"
+                        name = $"LockSuite Permit Service {label}",
+                        description = $"Permite al propio servicio conectar a {label} (puerto {remotePort})"
                     },
                     layerKey = WfpConstants.FWPM_LAYER_ALE_AUTH_CONNECT_V4,
                     subLayerKey = WfpConstants.LockSuiteSubLayerGuid,
                     weight = weightVal,
-                    numFilterConditions = 1,
-                    filterCondition = condPtr,
+                    numFilterConditions = (uint)conditions.Length,
+                    filterCondition = condArrayPtr,
                     action = new FWPM_ACTION0 { type = WfpConstants.FWP_ACTION_PERMIT }
                 };
 
-                AddFilterChecked(in filter, "Permit Service AppId");
+                AddFilterChecked(in filter, $"Permit Service {label}");
             }
             finally
             {
                 if (weightPtr != IntPtr.Zero) Marshal.FreeHGlobal(weightPtr);
-                Marshal.FreeHGlobal(condPtr);
+                Marshal.FreeHGlobal(condArrayPtr);
             }
         }
         finally
