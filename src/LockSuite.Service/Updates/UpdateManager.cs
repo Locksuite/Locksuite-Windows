@@ -15,7 +15,7 @@ public sealed class UpdateManager : IDisposable
 {
     private readonly ILogger<UpdateManager> _logger;
     private readonly HttpClient _httpClient;
-    private readonly string _repoOwner = "CHKI541";
+    private readonly string _repoOwner = "Locksuite";
     private readonly string _repoName = "Locksuite-Windows";
     private readonly SemaphoreSlim _updateLock = new(1, 1);
     private Timer? _periodicTimer;

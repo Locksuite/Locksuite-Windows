@@ -9,7 +9,7 @@
 #define MyAppName "LockSuite Windows"
 #define MyAppVersion "0.5.2"
 #define MyAppPublisher "LockSuite Community"
-#define MyAppURL "https://github.com/CHKI541/Locksuite-Windows"
+#define MyAppURL "https://github.com/Locksuite/Locksuite-Windows"
 #define MyAppExeName "LockSuite.UI.exe"
 #define MyServiceExeName "LockSuite.Service.exe"
 

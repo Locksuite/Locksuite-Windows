@@ -107,10 +107,10 @@ git push origin main
 if ($LASTEXITCODE -ne 0) { exit 1 }
 
 # 8. Crear GitHub Release con el instalador y el SHA256SUMS adjuntos
-& gh release create "v$Version" "$installerPath" "$sumsPath" --title "LockSuite Windows v$Version" --notes "$Notes"
+& gh release create "v$Version" "$installerPath" "$sumsPath" --repo "Locksuite/Locksuite-Windows" --title "LockSuite Windows v$Version" --notes "$Notes"
 if ($LASTEXITCODE -ne 0) { exit 1 }
 
 Write-Host "==========================================================" -ForegroundColor Green
 Write-Host "  Publicacion completada exitosamente!" -ForegroundColor Green
-Write-Host "  URL: https://github.com/CHKI541/Locksuite-Windows/releases/tag/v$Version" -ForegroundColor Green
+Write-Host "  URL: https://github.com/Locksuite/Locksuite-Windows/releases/tag/v$Version" -ForegroundColor Green
 Write-Host "==========================================================" -ForegroundColor Green
