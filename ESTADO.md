@@ -1,8 +1,8 @@
 # Estado del proyecto — LockSuite Windows
 
-Versión actual: **0.5.2 — Construida, testeada al 100% (441/441 tests), empaquetada y publicada en GitHub Releases.** Auditoría de seguridad y cierre definitivo de vectores de evasión: corrección integral de las estructuras P/Invoke x64 de WFP (`FWPM_SUBLAYER0` y `FWPM_FILTER0`), corrección de GUIDs y constantes de kernel en `WfpConstants` (causa raíz por la que fallaba la instalación directa de WFP y caía en modo simulación), restricción estricta de puertos en la regla AppID del servicio (DNS 53, HTTPS 443, HTTP 80), validación anti-envenenamiento de respuestas DNS y seguimiento de cadenas CNAME, y registro del servicio en `SafeBoot\Network` para protección en Modo Seguro de Windows.
-Versión anterior: **0.5.1 — Construida, testeada al 100% (439/439 tests) y empaquetada.**
-Última actualización: 2026-11-03, sesión 15 (Auditoría exhaustiva de evasión y bugs, corrección crítica de structs y GUIDs WFP a estándares exactos de Windows SDK, endurecimiento anti-túneles en AppID, 441 tests verdes y release v0.5.2).
+Versión actual: **0.5.3 — Construida, testeada al 100% (441/441 tests), empaquetada y publicada en GitHub Releases.** Migración oficial del repositorio y auto-actualizador a `Locksuite/Locksuite-Windows`. Incluye todas las correcciones críticas de kernel de WFP, structs P/Invoke x64, endurecimiento de puertos AppID, anti-envenenamiento DNS y protección en Modo Seguro.
+Versión anterior: **0.5.2 — Construida, testeada al 100% (441/441 tests) y empaquetada.**
+Última actualización: 2026-11-04, sesión 16 (Migración completa de GitHub a Locksuite/Locksuite-Windows, configuración de Git Credential Manager, 441 tests verdes y publicación Release v0.5.3).
 
 ## 0. Contexto y propósito (importante, leer esto primero)
 
@@ -235,9 +235,19 @@ Compilación Release, 70/70 tests, publish self-contained, instalador v0.2.0 (73
 - **Resultados:** **441/441 tests pasando al 100% (verde)** (376 Core + 65 Service).
 - **Publicación:** Generación de instalador `LockSuiteSetup-0.5.2.exe`, SHA256SUMS.txt y Release `v0.5.2` en GitHub.
 
+### Sesión 16 — 2026-11-04 (Migración de GitHub a Locksuite/Locksuite-Windows y release v0.5.3)
+- **Migración de repositorio:** Se migró toda la configuración y código al nuevo repositorio de la organización/cuenta: `https://github.com/Locksuite/Locksuite-Windows`.
+- **Actualización de componentes:**
+  - `UpdateManager.cs`: Propietario fijado a `Locksuite`. Las consultas de actualización automática ahora apuntan a `https://api.github.com/repos/Locksuite/Locksuite-Windows/releases/latest`.
+  - `LockSuiteSetup.iss`: URL del proyecto actualizada a `https://github.com/Locksuite/Locksuite-Windows`.
+  - `publish-release.ps1`: Automatización configurada con `--repo Locksuite/Locksuite-Windows`.
+  - `.git/config`: Remoto `origin` apuntando a `Locksuite/Locksuite-Windows.git` y autenticación configurada vía `gh`.
+- **Resultados:** **441/441 tests pasando al 100% (verde)**.
+- **Publicación:** Publicación de la versión `v0.5.3` con instalador y hashes en el nuevo repositorio.
+
 ---
 
 ## 8. Próximo paso
 
-1. Monitorear las actualizaciones automáticas de los clientes a la versión v0.5.2.
+1. Distribuir el instalador v0.5.3 a los equipos clientes para que queden enlazados al nuevo repositorio.
 2. Evaluar la fase 2 (inspección de **SNI**) de `docs/ANALISIS_VIABILIDAD.md` §2.4.
