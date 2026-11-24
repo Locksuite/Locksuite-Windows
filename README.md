@@ -1,26 +1,27 @@
 # LockSuite Windows
 
-Programa para Windows 11 que bloquea todo el acceso a internet de una computadora salvo una lista blanca de dominios definida por un administrador. Pensado para instalarse en varias máquinas.
+Programa para Windows 11 que bloquea todo el acceso a internet de una computadora salvo una lista blanca de dominios definida por un administrador (`v0.5.3`). Pensado para instalarse en equipos "Kosher" administrados por un tutor.
 
 ## Documentos del proyecto
 
-- [`ESTADO.md`](./ESTADO.md) — qué está hecho, qué falta y qué preguntas están abiertas. **Leer siempre primero.**
-- [`PROMPT_MAESTRO.md`](./PROMPT_MAESTRO.md) — texto para pegar al principio de cada conversación nueva con Claude.
-- [`docs/ANALISIS_VIABILIDAD.md`](./docs/ANALISIS_VIABILIDAD.md) — arquitectura elegida, por qué, y qué queda explícitamente afuera.
-- [`docs/ANALISIS_TECHLOQ.md`](./docs/ANALISIS_TECHLOQ.md) — qué tomamos y qué no de analizar Techloq.
+- [`CONTEXTO_IA.md`](./CONTEXTO_IA.md) — **documento maestro para IA** (arquitectura, invariantes, estado actual, reglas de cierre, release y auto-update). Al iniciar una conversación nueva, alcanza con indicar *"lee el archivo de contexto para IA"*.
+- [`docs/ANALISIS_VIABILIDAD.md`](./docs/ANALISIS_VIABILIDAD.md) — arquitectura elegida, alcance y diseño de Fase 2 (inspección SNI).
+- [`docs/ANALISIS_DOMINIOS_SERVICIOS.md`](./docs/ANALISIS_DOMINIOS_SERVICIOS.md) — análisis host por host de los servicios permitidos y bloqueo fijo de Google Search/Gemini.
+- [`docs/ANALISIS_INCOMODIDADES_Y_FALLAS.md`](./docs/ANALISIS_INCOMODIDADES_Y_FALLAS.md) — catálogo de casos límite, certificados PKI/OCSP/CRL, DoH, portal cautivo y red local.
+- [`docs/historial/`](./docs/historial/) — archivo histórico de sesiones anteriores (actas y auditorías ya aplicadas; no es necesario releerlo en sesiones normales).
 
 ## Idea general
 
-- Una cuenta de **administrador** (la tenés vos) y una cuenta **estándar** (la usa la persona).
-- El firewall de Windows bloquea TODO el tráfico saliente por defecto.
-- Un resolutor DNS local solo responde por los dominios de la lista blanca; al resolver, habilita temporalmente esa IP en el firewall.
-- Una interfaz de escritorio (WPF) protegida con tu contraseña para administrar la lista.
-- Todo corre como servicio de Windows (SYSTEM), se instala con un instalador (Inno Setup) y arranca con Windows.
+- Una cuenta de **administrador** (el tutor) y una cuenta **estándar** (quien usa el equipo).
+- **Windows Filtering Platform (WFP)** bloquea todo el tráfico saliente por defecto (*fail-closed*, IPv4 e IPv6).
+- Un **resolutor DNS local** (`127.0.0.1:53` vía NRPT) solo resuelve dominios de la lista blanca y abre reglas WFP temporales para esas IPs; el resto recibe `NXDOMAIN`.
+- Interfaz de escritorio (**WPF .NET 8**) protegida con contraseña maestra (PBKDF2 + DPAPI) para gestionar servicios, dominios y modo aprendizaje.
+- Todo corre como servicio de Windows (`SYSTEM`), se instala con **Inno Setup** y se auto-actualiza desde [Locksuite/Locksuite-Windows](https://github.com/Locksuite/Locksuite-Windows).
 
 ## Qué NO incluye, a propósito
 
-No hay driver de kernel, no hay inspección de tráfico HTTPS (sin certificado raíz propio), y no se intenta bloquear al administrador de la máquina. El porqué está en `docs/ANALISIS_VIABILIDAD.md`.
+No hay driver de kernel propio (`.sys`), no hay inspección TLS/MITM con certificado raíz propio, ni se intenta bloquear al propio administrador de Windows. El detalle técnico está en `docs/ANALISIS_VIABILIDAD.md`.
 
-## Flujo de trabajo
+## Flujo de trabajo con IA
 
-Cada conversación nueva con Claude empieza pegando `PROMPT_MAESTRO.md`. Al terminar esa conversación, `ESTADO.md` queda actualizado para que la siguiente arranque donde quedó esta.
+Al iniciar una conversación nueva, indicá **"lee el archivo de contexto para IA"** (`CONTEXTO_IA.md`). Al finalizar cada sesión, el agente debe correr los tests, actualizar `CONTEXTO_IA.md`, commitear y subir todo a GitHub (y publicar release con `scripts/publish-release.ps1` si hubo cambios en el programa o instalador).
