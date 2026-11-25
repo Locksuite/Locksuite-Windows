@@ -17,7 +17,7 @@ public class WfpManagerTests : IDisposable
 
     public WfpManagerTests()
     {
-        _manager = new WfpManager(NullLogger<WfpManager>.Instance);
+        _manager = new WfpManager(NullLogger<WfpManager>.Instance, forceSimulation: true);
         _manager.Initialize(failClosed: false);
     }
 
@@ -30,6 +30,7 @@ public class WfpManagerTests : IDisposable
     public void Initialize_ActivatesEngineOrSimulation()
     {
         Assert.True(_manager.IsActive);
+        Assert.True(_manager.IsSimulationMode);
     }
 
     [Fact]
@@ -129,6 +130,27 @@ public class WfpManagerTests : IDisposable
         Assert.Equal(0x101u, WfpConstants.FWP_V6_ADDR_MASK);
         Assert.Equal(0x00000001u, WfpConstants.FWP_ACTRL_MATCH_FILTER);
         Assert.Equal(6u, WfpConstants.FWP_MATCH_FLAGS_ALL_SET);
+        Assert.Equal(10u, WfpConstants.RPC_C_AUTHN_WINNT);
+        Assert.Equal(0xFFFFFFFFu, WfpConstants.RPC_C_AUTHN_DEFAULT);
+        Assert.Equal(0x80320009u, WfpConstants.FWP_E_ALREADY_EXISTS);
+        Assert.Equal(0x8032000Cu, WfpConstants.FWP_E_WRONG_SESSION);
+        Assert.Equal(0x80320012u, WfpConstants.FWP_E_TIMEOUT);
+        Assert.Equal(0x80320016u, WfpConstants.FWP_E_INCOMPATIBLE_LIFETIME);
+    }
+
+    [Fact]
+    public void IsTransientBfeError_RetriesOnlyStartupTransientCodes()
+    {
+        Assert.True(WfpManager.IsTransientBfeError(WfpConstants.EPT_S_NOT_REGISTERED));
+        Assert.True(WfpManager.IsTransientBfeError(WfpConstants.RPC_S_SERVER_UNAVAILABLE));
+        Assert.True(WfpManager.IsTransientBfeError(WfpConstants.RPC_S_UNKNOWN_IF));
+        Assert.True(WfpManager.IsTransientBfeError(WfpConstants.FWP_E_TIMEOUT));
+
+        Assert.False(WfpManager.IsTransientBfeError(0u));
+        Assert.False(WfpManager.IsTransientBfeError(WfpConstants.ERROR_ACCESS_DENIED));
+        Assert.False(WfpManager.IsTransientBfeError(WfpConstants.E_ACCESSDENIED));
+        Assert.False(WfpManager.IsTransientBfeError(0x00000032u)); // ERROR_NOT_SUPPORTED
+        Assert.False(WfpManager.IsTransientBfeError(WfpConstants.FWP_E_ALREADY_EXISTS));
     }
 
     [Fact]

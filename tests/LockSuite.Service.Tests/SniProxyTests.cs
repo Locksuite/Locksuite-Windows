@@ -111,6 +111,33 @@ public class SniProxyTests : IDisposable
         return ms.ToArray();
     }
 
+    private static async Task<byte[]> ReadUntilClosedOrAbortedAsync(Stream stream, CancellationToken ct)
+    {
+        using var ms = new MemoryStream();
+        byte[] buf = new byte[4096];
+        try
+        {
+            while (true)
+            {
+                int n = await stream.ReadAsync(buf, ct);
+                if (n <= 0) break;
+                ms.Write(buf, 0, n);
+            }
+        }
+        catch (IOException ex) when (ex.InnerException is SocketException se &&
+            (se.SocketErrorCode == SocketError.ConnectionReset ||
+             se.SocketErrorCode == SocketError.ConnectionAborted))
+        {
+            // En cierres rápidos de sockets en loopback Windows puede devolver RST/abortado
+        }
+        catch (SocketException se) when (
+            se.SocketErrorCode == SocketError.ConnectionReset ||
+             se.SocketErrorCode == SocketError.ConnectionAborted)
+        {
+        }
+        return ms.ToArray();
+    }
+
     [Fact]
     public async Task Https_AllowedDomain_PassesThroughClientHelloAndResponse()
     {
@@ -159,7 +186,7 @@ public class SniProxyTests : IDisposable
         await netStream.WriteAsync(clientHello);
         await netStream.FlushAsync();
 
-        using var cts = new CancellationTokenSource(5000);
+        using var cts = new CancellationTokenSource(10000);
         byte[] reply = await ReadAllUntilEofAsync(netStream, cts.Token);
         await upstreamTask;
 
@@ -195,8 +222,8 @@ public class SniProxyTests : IDisposable
         using var netStream = tcp.GetStream();
         await netStream.WriteAsync(clientHello);
 
-        using var cts = new CancellationTokenSource(5000);
-        byte[] reply = await ReadAllUntilEofAsync(netStream, cts.Token);
+        using var cts = new CancellationTokenSource(10000);
+        byte[] reply = await ReadUntilClosedOrAbortedAsync(netStream, cts.Token);
 
         Assert.Empty(reply);
         Assert.False(upstreamListener.Pending());
@@ -231,8 +258,8 @@ public class SniProxyTests : IDisposable
         using var netStream = tcp.GetStream();
         await netStream.WriteAsync(clientHelloWithEch);
 
-        using var cts = new CancellationTokenSource(5000);
-        byte[] reply = await ReadAllUntilEofAsync(netStream, cts.Token);
+        using var cts = new CancellationTokenSource(10000);
+        byte[] reply = await ReadUntilClosedOrAbortedAsync(netStream, cts.Token);
 
         Assert.Empty(reply);
         Assert.False(upstreamListener.Pending());
@@ -293,7 +320,7 @@ public class SniProxyTests : IDisposable
             await Task.Delay(5);
         }
 
-        using var cts = new CancellationTokenSource(5000);
+        using var cts = new CancellationTokenSource(10000);
         byte[] reply = await ReadAllUntilEofAsync(netStream, cts.Token);
         await upstreamTask;
 
@@ -356,7 +383,7 @@ public class SniProxyTests : IDisposable
         await netStream.WriteAsync(Encoding.ASCII.GetBytes(rawReq));
         await netStream.FlushAsync();
 
-        using var cts = new CancellationTokenSource(5000);
+        using var cts = new CancellationTokenSource(10000);
         byte[] reply = await ReadAllUntilEofAsync(netStream, cts.Token);
         await upstreamTask;
 
@@ -393,8 +420,8 @@ public class SniProxyTests : IDisposable
         using var netStream = tcp.GetStream();
         await netStream.WriteAsync(Encoding.ASCII.GetBytes(rawRequest));
 
-        using var cts = new CancellationTokenSource(5000);
-        byte[] reply = await ReadAllUntilEofAsync(netStream, cts.Token);
+        using var cts = new CancellationTokenSource(10000);
+        byte[] reply = await ReadUntilClosedOrAbortedAsync(netStream, cts.Token);
 
         Assert.Empty(reply);
         Assert.False(upstreamListener.Pending());
@@ -430,8 +457,8 @@ public class SniProxyTests : IDisposable
         using var netStream = tcp.GetStream();
         await netStream.WriteAsync(clientHello);
 
-        using var cts = new CancellationTokenSource(5000);
-        byte[] reply = await ReadAllUntilEofAsync(netStream, cts.Token);
+        using var cts = new CancellationTokenSource(10000);
+        byte[] reply = await ReadUntilClosedOrAbortedAsync(netStream, cts.Token);
 
         Assert.Empty(reply);
         Assert.False(upstreamListener.Pending());

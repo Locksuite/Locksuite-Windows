@@ -5,11 +5,11 @@
 
 ## 1. Snapshot actual
 
-- **Versión vigente publicada:** `v0.6.0` (2026-11-25) — fuente única en `Program.Version` (`src/LockSuite.Service/Program.cs`) y `MyAppVersion` (`installer/LockSuiteSetup.iss`).
+- **Versión vigente publicada:** `v0.6.1` (2026-11-25) — fuente única en `Program.Version` (`src/LockSuite.Service/Program.cs`) y `MyAppVersion` (`installer/LockSuiteSetup.iss`).
 - **Repositorio GitHub oficial:** `https://github.com/Locksuite/Locksuite-Windows` (rama `main`, remoto `origin`).
 - **Identidad Git / GitHub CLI:** usuario `Locksuite` (`locksuite@users.noreply.github.com`), autenticado en `gh` con scopes `repo` y `workflow`.
-- **Release vigente en GitHub:** `v0.6.0` con `LockSuiteSetup-0.6.0.exe` y `SHA256SUMS.txt`.
-- **Suite de tests:** **546/546 verdes** (`432` en `LockSuite.Core.Tests` + `114` en `LockSuite.Service.Tests`).
+- **Release vigente en GitHub:** `v0.6.1` con `LockSuiteSetup-0.6.1.exe` y `SHA256SUMS.txt`.
+- **Suite de tests:** **547/547 verdes** (`432` en `LockSuite.Core.Tests` + `115` en `LockSuite.Service.Tests`).
 - **Entorno de desarrollo:** Windows 11 `win-x64`, .NET 8 SDK (`dotnet` o `%USERPROFILE%\.dotnet\dotnet.exe`), Inno Setup 6 (`ISCC.exe`), GitHub CLI (`gh`).
 - **Preferencias del usuario:** responder en español y de forma concisa. **No tocar ni referenciar la unidad `F:`.**
 
@@ -73,8 +73,8 @@ LockSuite Windows es un filtro de internet por **lista blanca estricta (default-
 | `src/LockSuite.Core/` | Lógica multiplataforma (.NET 8): `DomainMatcher.cs` (sintaxis, sufijos públicos e IPs literales), `WhitelistConfig.cs` (config v2 + `Blocks`/`Excluded`/`AllowLocalNetwork`/`SniInspectionEnabled`), `Presets.cs` (13 paquetes + notas; PKI acotada sin GitHub abierto), `PresetSync.cs` (migración idempotente), `SniParser.cs` (parser TLS + detección ECH/ESNI para Fase 2), `TrialConfig.cs`, `IpcMessages.cs`, `LockSuiteClient.cs` (con verificación de dueño SYSTEM/Admin del pipe). |
 | `src/LockSuite.Service/` | Windows Service (`SYSTEM`): `Program.cs` (`Version`, CLI, `depend= BFE`, DI), `Worker.cs` (ciclo vida + hooks), `Wfp/{WfpManager,IWfpManager,NativeMethods,WfpConstants}.cs` (doble sesión, `ALE_USER_ID`, `ALE_AUTH_RECV_ACCEPT`), `Dns/{DnsResolver,DnsPacket,DnsConfigurator}.cs` (UDP/TCP 53, IPv6/DHCP fallback, `SERVFAIL`, ECH strip), `Proxy/SniProxy.cs` (Fase 2 passthrough TLS SNI/HTTP en `127.0.0.1:443/80`), `Ipc/NamedPipeServer.cs`, `Security/{SecurityManager,AclHelper}.cs`, `Config/ConfigManager.cs`, `Learning/LearningManager.cs`, `Trial/TrialManager.cs`, `CaptivePortal/CaptivePortalManager.cs`, `Updates/UpdateManager.cs` (resolución privada de GitHub). |
 | `src/LockSuite.UI/` | Cliente WPF de escritorio (instancia única por Mutex + `TrayIconHelper` en bandeja): `MainWindow.xaml(.cs)`, `ViewModels/{MainViewModel,PackViewModel,ViewModelBase}.cs` (buscador, refresco incremental, sincronización de sesión), `Views/{AddDomainDialog,PasswordDialog,TrialEndedDialog}.xaml(.cs)`, `Converters/{AuthConverters,BlockedDomainNoteConverter}.cs`. |
-| `tests/` | `LockSuite.Core.Tests` (`432` tests) y `LockSuite.Service.Tests` (`114` tests). Incluyen verificación de layout binario x64/GUIDs WFP (`WfpManagerTests`), passthrough/anti-ECH/anti-SSRF (`SniProxyTests`), portal cautivo (`CaptivePortalManagerTests`) y round-trip/seguridad IPC (`IpcRoundTripTests`). |
-| `installer/LockSuiteSetup.iss` | Instalador Inno Setup 6 (`x64compatible`): páginas de contraseña (`SaveStringToUTF8File`) y modo de prueba, `icacls` en `%ProgramData%\LockSuite` y `{app}\service`, `SafeBoot\Network`, DoH `off` en Chrome/Edge/Firefox, extensión forzada *"Don't track me Google"* (valor `9051`), tarea `RunAsInvoker` vía PowerShell `-LiteralPath`, `PrepareToInstall` con espera real de parada de servicio, `UninstallRun` y `UninstallDelete`. |
+| `tests/` | `LockSuite.Core.Tests` (`432` tests) y `LockSuite.Service.Tests` (`115` tests). Incluyen verificación de layout binario x64/GUIDs/códigos WFP (`WfpManagerTests`), passthrough/anti-ECH/anti-SSRF (`SniProxyTests`), portal cautivo (`CaptivePortalManagerTests`) y round-trip/seguridad IPC (`IpcRoundTripTests`). Las clases de prueba usan `WfpManager(..., forceSimulation: true)` para evitar starvation e instalación real en CI elevado. |
+| `installer/LockSuiteSetup.iss` | Instalador Inno Setup 6 (`x64compatible`): páginas de contraseña (`SaveStringToFile` + `Utf8Encode`) y modo de prueba, `icacls` en `%ProgramData%\LockSuite` y `{app}\service`, `SafeBoot\Network`, DoH `off` en Chrome/Edge/Firefox, extensión forzada *"Don't track me Google"* (valor `9051`), tarea `RunAsInvoker` vía PowerShell `-LiteralPath`, `PrepareToInstall` con espera real de parada de servicio, `UninstallRun` y `UninstallDelete`. |
 | `scripts/publish-release.ps1` | Script maestro de release local (tests, versionado, publish x64, ISCC, `SHA256SUMS.txt`, git push y `gh release create`). |
 | `.github/workflows/build-and-release.yml` | CI/CD en GitHub Actions para tags `v*` o `workflow_dispatch` (mantiene sincronizadas las versiones y genera `SHA256SUMS.txt`). |
 | `README.md` y `LockSuite.sln` | Guía general del repo y solución .NET. |
@@ -101,7 +101,7 @@ Contiene registros superados de las sesiones 1 a 16 ya integrados en el código 
 ## 5. Arquitectura e invariantes críticas (no romper)
 
 ### 5.1 Windows Filtering Platform (`WfpManager.cs`, `NativeMethods.cs`, `WfpConstants.cs`)
-- **Doble sesión WFP (fail-closed + autolimpieza):** sesión base **no dinámica** (`flags = 0` cuando `FailClosed=true`, con reintentos si BFE tarda en arrancar y dependencia `depend= BFE` en `sc`) para subcapa y filtros base; segunda sesión **siempre dinámica** (`flags = 1`) para las reglas temporales por IP (autolimpieza ante crash sin romper `--reset-wfp`). Parada ordenada (`Worker.StopAsync`) siempre ejecuta `CaptivePortalManager.Dispose()` + `RemoveNrptRedirect()` + `Rollback()`.
+- **Doble sesión WFP (fail-closed + autolimpieza):** sesión base **no dinámica** (`flags = 0` cuando `FailClosed=true`, con reintentos `IsTransientBfeError` si BFE tarda en arrancar y dependencia `depend= BFE` en `sc`) para subcapa y filtros base; segunda sesión **siempre dinámica** (`flags = 1`) abierta **solo en `failClosed=true`** para las reglas temporales por IP (autolimpieza ante crash sin romper `--reset-wfp` ni colisionar de tiempo de vida cuando `failClosed=false`). Todas las llamadas a `FwpmEngineOpen0` usan `WfpConstants.RPC_C_AUTHN_WINNT` (`10`) y manejan los códigos oficiales SDK (`FWP_E_ALREADY_EXISTS = 0x80320009`). Parada ordenada (`Worker.StopAsync`) siempre ejecuta `CaptivePortalManager.Dispose()` + `RemoveNrptRedirect()` + `Rollback()`.
 - **Idempotencia:** las claves fijas (`BaseFilterKeys`, incluidas claves legacy) se borran por clave antes de recrearse dentro de la transacción.
 - **Endurecimiento anti-evasión (`ALE_USER_ID` + inbound default-deny):**
   - Salida por `ALE_APP_ID` de `LockSuite.Service.exe` (puertos `53` UDP/TCP, `443` TCP, `80` TCP en V4 y V6) exige **`FWPM_CONDITION_ALE_USER_ID` = `SYSTEM`** (`S-1-5-18`) + ACL NTFS en `{app}\service` restringida a `SYSTEM`/`Administrators` (impide inyección/hollowing desde usuario estándar).
@@ -184,10 +184,11 @@ Get-DnsClientNrptRule | Where-Object { $_.Comment -eq 'LockSuiteDNS' }
 | `v0.5.3` (2026-11-04) | Migración completa de GitHub y auto-actualizador al repositorio oficial `Locksuite/Locksuite-Windows` + publicación v0.5.3 (441/441 tests). |
 | Docs (2026-11-24) | Consolidación de contexto en `CONTEXTO_IA.md` y archivo de documentación histórica en `docs/historial/` (441/441 tests). |
 | `v0.6.0` (2026-11-25) | Auditoría integral y cierre de bugs/evasiones: `SniProxy` Fase 2 transparente (`443`/`80`, anti-ECH/SSRF/Host-smuggling), doble sesión WFP + `ALE_USER_ID` + `ALE_AUTH_RECV_ACCEPT` + `depend= BFE`, GitHub aislado en `UpdateManager`, DNS `ExclusiveAddressUse` + TCP/53 + IPv6/DHCP fallback + `SERVFAIL`, IPC anti-squatting + límite 256 KB, lockout progresivo real, UI con bandeja/instancia única/buscador/sesión sincronizada, e instalador UTF-8 + ACL `{app}\service` (546/546 tests). |
+| `v0.6.1` (2026-11-25) | Fix crítico WFP en kernel: `FwpmEngineOpen0` ahora usa `RPC_C_AUTHN_WINNT` (`10`) en lugar de `0` (evitaba `ERROR_NOT_SUPPORTED` y caída silenciosa a simulación tras 7.5s de reintentos), códigos oficiales `FWP_E_ALREADY_EXISTS = 0x80320009` / `IsTransientBfeError`, sesión dinámica secundaria solo en `failClosed=true` (con fallback), cierre graceful en `SniProxy` y `forceSimulation: true` en tests para evitar starvation e instalación real en CI elevado (547/547 tests). |
 
 ---
 
 ## 9. Próximo paso
 
-1. Probar `v0.6.0` (y el upgrade automático desde `v0.5.3`) en una VM Windows 11 aislada verificando `SniProxy`, WFP con `ALE_USER_ID`, portal cautivo real y Google Docs.
+1. Probar `v0.6.1` (y el upgrade automático desde `v0.5.3` / `v0.6.0`) en una VM Windows 11 aislada verificando `SniProxy`, WFP real en modo kernel (`RPC_C_AUTHN_WINNT` + `ALE_USER_ID`), portal cautivo real y Google Docs.
 2. Evaluar firma Authenticode para el instalador y empaquetado local de la extensión del navegador.

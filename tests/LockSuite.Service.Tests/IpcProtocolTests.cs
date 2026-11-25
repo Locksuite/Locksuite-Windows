@@ -34,7 +34,7 @@ public class IpcProtocolTests : IDisposable
 
         _configManager = new ConfigManager(NullLogger<ConfigManager>.Instance, cfgPath);
         _securityManager = new SecurityManager(NullLogger<SecurityManager>.Instance, authPath);
-        _wfpManager = new WfpManager(NullLogger<WfpManager>.Instance);
+        _wfpManager = new WfpManager(NullLogger<WfpManager>.Instance, forceSimulation: true);
         _wfpManager.Initialize(failClosed: false);
         _learningManager = new LearningManager(NullLogger<LearningManager>.Instance, logPath);
         _dnsResolver = new DnsResolver(NullLogger<DnsResolver>.Instance, _configManager, _wfpManager, _learningManager, listenPort: 5354);

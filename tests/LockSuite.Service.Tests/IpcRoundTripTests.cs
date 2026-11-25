@@ -39,7 +39,7 @@ public class IpcRoundTripTests : IDisposable
         Directory.CreateDirectory(_tempDir);
         _configManager = new ConfigManager(NullLogger<ConfigManager>.Instance, Path.Combine(_tempDir, "whitelist.json"));
         var security = new SecurityManager(NullLogger<SecurityManager>.Instance, Path.Combine(_tempDir, "auth.dat"));
-        _wfpManager = new WfpManager(NullLogger<WfpManager>.Instance);
+        _wfpManager = new WfpManager(NullLogger<WfpManager>.Instance, forceSimulation: true);
         _wfpManager.Initialize(failClosed: false);
         _learningManager = new LearningManager(NullLogger<LearningManager>.Instance, Path.Combine(_tempDir, "blocked.json"));
         _dnsResolver = new DnsResolver(NullLogger<DnsResolver>.Instance, _configManager, _wfpManager, _learningManager, listenPort: 5356);

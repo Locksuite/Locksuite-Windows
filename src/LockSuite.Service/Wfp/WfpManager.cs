@@ -19,6 +19,7 @@ public sealed class WfpManager : IWfpManager
     private IntPtr _dynamicEngineHandle = IntPtr.Zero;
     private bool _isActive;
     private bool _isSimulationMode;
+    private readonly bool _forceSimulation;
     private long _simNextId = 100_000;
 
     public const int MaxDynamicRules = 4096;
@@ -26,12 +27,6 @@ public sealed class WfpManager : IWfpManager
     // SDDL para restringir reglas criticas a SYSTEM o servicios de red/locales
     internal const string SddlSystemOnly = "O:SYG:SYD:(A;;0x00000001;;;SY)";
     internal const string SddlSystemServices = "O:SYG:SYD:(A;;0x00000001;;;SY)(A;;0x00000001;;;LS)(A;;0x00000001;;;NS)";
-
-    // Codigos WFP relevantes
-    private const uint FWP_E_ALREADY_EXISTS = 0x80320002;
-    private const uint ERROR_ACCESS_DENIED_WIN32 = 0x00000005;
-    private const uint E_ACCESSDENIED_COM = 0x80070005;
-    private const uint FWP_E_ACCESS_DENIED_WFP = 0x80320009;
 
     // Claves FIJAS de los filtros base. Al ser estables (no aleatorias), la instalacion
     // es idempotente: en cada arranque se borran por clave y se vuelven a crear dentro de
@@ -135,9 +130,12 @@ public sealed class WfpManager : IWfpManager
     private bool _allowLocalNetwork;
     public bool AllowLocalNetwork => _allowLocalNetwork;
 
-    public WfpManager(ILogger<WfpManager> logger)
+    public WfpManager(ILogger<WfpManager> logger) : this(logger, forceSimulation: false) { }
+
+    internal WfpManager(ILogger<WfpManager> logger, bool forceSimulation)
     {
         _logger = logger;
+        _forceSimulation = forceSimulation;
     }
 
     public void Initialize(bool failClosed) => Initialize(failClosed, allowLocalNetwork: false);
@@ -151,9 +149,11 @@ public sealed class WfpManager : IWfpManager
 
             _logger.LogInformation("Inicializando Windows Filtering Platform (WFP)... FailClosed={FailClosed}, RedLocal={Local}", failClosed, allowLocalNetwork);
 
-            if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+            if (_forceSimulation || !RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
             {
-                _logger.LogWarning("Plataforma no es Windows. Activando WFP en modo simulación.");
+                _logger.LogWarning(_forceSimulation
+                    ? "WFP configurado en modo simulación forzada."
+                    : "Plataforma no es Windows. Activando WFP en modo simulación.");
                 _isSimulationMode = true;
                 _isActive = true;
                 StartExpirationTimer();
@@ -177,22 +177,22 @@ public sealed class WfpManager : IWfpManager
                 txnWaitTimeoutInMSec = 5000
             };
 
-            // Reintento progresivo ante arranque temprano de BFE (si no es acceso denegado)
+            // Reintento progresivo ante arranque temprano de BFE (solo errores transitorios de RPC/BFE)
             int[] retryDelaysMs = { 500, 1000, 2000, 4000 };
-            uint status = NativeMethods.FwpmEngineOpen0(null, 0, IntPtr.Zero, in session, out _engineHandle);
-            for (int attempt = 0; status != 0 && !IsAccessDeniedStatus(status) && attempt < retryDelaysMs.Length; attempt++)
+            uint status = NativeMethods.FwpmEngineOpen0(null, WfpConstants.RPC_C_AUTHN_WINNT, IntPtr.Zero, in session, out _engineHandle);
+            for (int attempt = 0; status != 0 && IsTransientBfeError(status) && attempt < retryDelaysMs.Length; attempt++)
             {
                 int delayMs = retryDelaysMs[attempt];
                 _logger.LogWarning(
                     "FwpmEngineOpen0 retornó 0x{Status:X8} (BFE posiblemente iniciando). Reintento {Attempt}/{Max} en {Delay}ms...",
                     status, attempt + 1, retryDelaysMs.Length, delayMs);
                 Thread.Sleep(delayMs);
-                status = NativeMethods.FwpmEngineOpen0(null, 0, IntPtr.Zero, in session, out _engineHandle);
+                status = NativeMethods.FwpmEngineOpen0(null, WfpConstants.RPC_C_AUTHN_WINNT, IntPtr.Zero, in session, out _engineHandle);
             }
 
             if (status != 0 || _engineHandle == IntPtr.Zero)
             {
-                _logger.LogWarning("FwpmEngineOpen0 retornó código 0x{Status:X8}. Se requiere elevación de Administrador. Activando modo simulación.", status);
+                _logger.LogWarning("FwpmEngineOpen0 retornó código 0x{Status:X8}. Se requiere elevación de Administrador/SYSTEM. Activando modo simulación.", status);
                 _engineHandle = IntPtr.Zero;
                 _dynamicEngineHandle = IntPtr.Zero;
                 _isSimulationMode = true;
@@ -201,25 +201,32 @@ public sealed class WfpManager : IWfpManager
                 return;
             }
 
-            // Abrir segunda sesión SIEMPRE dinámica para reglas temporales por IP
-            var dynamicSession = new FWPM_SESSION0
+            // Abrir segunda sesión SIEMPRE dinámica solo cuando failClosed=true (si failClosed=false la sesión base ya es dinámica)
+            if (failClosed)
             {
-                sessionKey = Guid.NewGuid(),
-                displayData = new FWPM_DISPLAY_DATA0
+                var dynamicSession = new FWPM_SESSION0
                 {
-                    name = "LockSuite Dynamic Rules Session",
-                    description = "Sesión dinámica para reglas temporales por IP de LockSuite"
-                },
-                flags = 1u,
-                txnWaitTimeoutInMSec = 5000
-            };
+                    sessionKey = Guid.NewGuid(),
+                    displayData = new FWPM_DISPLAY_DATA0
+                    {
+                        name = "LockSuite Dynamic Rules Session",
+                        description = "Sesión dinámica para reglas temporales por IP de LockSuite"
+                    },
+                    flags = 1u,
+                    txnWaitTimeoutInMSec = 5000
+                };
 
-            uint dynStatus = NativeMethods.FwpmEngineOpen0(null, 0, IntPtr.Zero, in dynamicSession, out _dynamicEngineHandle);
-            if (dynStatus != 0 || _dynamicEngineHandle == IntPtr.Zero)
+                uint dynStatus = NativeMethods.FwpmEngineOpen0(null, WfpConstants.RPC_C_AUTHN_WINNT, IntPtr.Zero, in dynamicSession, out _dynamicEngineHandle);
+                if (dynStatus != 0 || _dynamicEngineHandle == IntPtr.Zero)
+                {
+                    _logger.LogWarning(
+                        "No se pudo abrir la sesión dinámica WFP secundaria (0x{Status:X8}). Usando sesión base como fallback.",
+                        dynStatus);
+                    _dynamicEngineHandle = IntPtr.Zero;
+                }
+            }
+            else
             {
-                _logger.LogWarning(
-                    "No se pudo abrir la sesión dinámica WFP secundaria (0x{Status:X8}). Usando sesión base como fallback.",
-                    dynStatus);
                 _dynamicEngineHandle = IntPtr.Zero;
             }
 
@@ -235,6 +242,14 @@ public sealed class WfpManager : IWfpManager
                     "WFP inicializado exitosamente en modo kernel. Subcapa y filtros base aplicados (DynamicSession={DynActive}).",
                     IsDynamicSessionActive);
             }
+            catch (UnauthorizedAccessException ex)
+            {
+                _logger.LogWarning("Sin permisos suficientes en WFP ({Message}). Se requiere elevación de Administrador/SYSTEM. Revirtiendo a modo simulación.", ex.Message);
+                Rollback();
+                _isSimulationMode = true;
+                _isActive = true;
+                StartExpirationTimer();
+            }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error al instalar subcapa y filtros base en WFP. Efectuando rollback y pasando a simulación.");
@@ -246,10 +261,15 @@ public sealed class WfpManager : IWfpManager
         }
     }
 
-    private static bool IsAccessDeniedStatus(uint status) =>
-        status == ERROR_ACCESS_DENIED_WIN32 ||
-        status == E_ACCESSDENIED_COM ||
-        status == FWP_E_ACCESS_DENIED_WFP;
+    internal static bool IsAccessDeniedStatus(uint status) =>
+        status == WfpConstants.ERROR_ACCESS_DENIED ||
+        status == WfpConstants.E_ACCESSDENIED;
+
+    internal static bool IsTransientBfeError(uint status) =>
+        status == WfpConstants.EPT_S_NOT_REGISTERED ||
+        status == WfpConstants.RPC_S_SERVER_UNAVAILABLE ||
+        status == WfpConstants.RPC_S_UNKNOWN_IF ||
+        status == WfpConstants.FWP_E_TIMEOUT;
 
     internal static byte[] BuildSecurityDescriptorBytes(string sddl)
     {
@@ -311,11 +331,25 @@ public sealed class WfpManager : IWfpManager
         bool useKernel = false;
         lock (_engineLock)
         {
-            IntPtr targetHandle = _dynamicEngineHandle != IntPtr.Zero ? _dynamicEngineHandle : _engineHandle;
+            bool usingSecondaryDynamic = _dynamicEngineHandle != IntPtr.Zero;
+            IntPtr targetHandle = usingSecondaryDynamic ? _dynamicEngineHandle : _engineHandle;
             if (!_isSimulationMode && targetHandle != IntPtr.Zero)
             {
                 useKernel = true;
-                filterId = AddIpFilter(ip, targetHandle);
+                filterId = AddIpFilter(ip, targetHandle, out uint addStatus);
+                if (filterId == 0 && usingSecondaryDynamic &&
+                    (addStatus == WfpConstants.FWP_E_INCOMPATIBLE_LIFETIME || addStatus == WfpConstants.FWP_E_WRONG_SESSION))
+                {
+                    _logger.LogWarning(
+                        "Sesión dinámica secundaria incompatible al agregar regla temporal (0x{Status:X8}). Cerrando secundaria y reintentando en sesión base.",
+                        addStatus);
+                    NativeMethods.FwpmEngineClose0(_dynamicEngineHandle);
+                    _dynamicEngineHandle = IntPtr.Zero;
+                    if (_engineHandle != IntPtr.Zero)
+                    {
+                        filterId = AddIpFilter(ip, _engineHandle, out _);
+                    }
+                }
             }
         }
 
@@ -547,9 +581,9 @@ public sealed class WfpManager : IWfpManager
     /// </summary>
     public void HardReset()
     {
-        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        if (_forceSimulation || !RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
         {
-            _logger.LogInformation("HardReset omitido (plataforma no Windows).");
+            _logger.LogInformation("HardReset omitido ({Reason}).", _forceSimulation ? "simulación forzada" : "plataforma no Windows");
             return;
         }
 
@@ -563,7 +597,7 @@ public sealed class WfpManager : IWfpManager
                 txnWaitTimeoutInMSec = 5000
             };
 
-            uint status = NativeMethods.FwpmEngineOpen0(null, 0, IntPtr.Zero, in session, out IntPtr handle);
+            uint status = NativeMethods.FwpmEngineOpen0(null, WfpConstants.RPC_C_AUTHN_WINNT, IntPtr.Zero, in session, out IntPtr handle);
             if (status != 0 || handle == IntPtr.Zero)
             {
                 _logger.LogWarning("HardReset: no se pudo abrir el motor WFP (0x{Status:X8}). ¿Falta elevación?", status);
@@ -636,6 +670,10 @@ public sealed class WfpManager : IWfpManager
         uint tx = NativeMethods.FwpmTransactionBegin0(_engineHandle, 0);
         if (tx != 0)
         {
+            if (IsAccessDeniedStatus(tx))
+            {
+                throw new UnauthorizedAccessException($"FwpmTransactionBegin0 denegado (0x{tx:X8}).");
+            }
             throw new InvalidOperationException($"FwpmTransactionBegin0 falló. Código: 0x{tx:X8}");
         }
 
@@ -883,7 +921,7 @@ public sealed class WfpManager : IWfpManager
                 _engineHandle, filterKey, "LockSuite " + label, label,
                 layerGuid, 50, WfpConstants.FWP_ACTION_PERMIT, condList.ToArray(), out _);
 
-            if (status != 0 && status != FWP_E_ALREADY_EXISTS)
+            if (status != 0 && status != WfpConstants.FWP_E_ALREADY_EXISTS)
                 _logger.LogWarning("No se pudo agregar '{Label}' (0x{Status:X8}).", label, status);
         }
         catch (Exception ex)
@@ -919,7 +957,7 @@ public sealed class WfpManager : IWfpManager
                 _engineHandle, filterKey, "LockSuite " + label, "Permite la red local (direcciones privadas)",
                 layerGuid, 60, WfpConstants.FWP_ACTION_PERMIT, conditions, out _);
 
-            if (status != 0 && status != FWP_E_ALREADY_EXISTS)
+            if (status != 0 && status != WfpConstants.FWP_E_ALREADY_EXISTS)
                 throw new InvalidOperationException($"FwpmFilterAdd0 ('{label}') falló. Código: 0x{status:X8}");
         }
         finally
@@ -945,7 +983,7 @@ public sealed class WfpManager : IWfpManager
         };
 
         uint status = NativeMethods.FwpmSubLayerAdd0(_engineHandle, in subLayer, IntPtr.Zero);
-        if (status != 0 && status != FWP_E_ALREADY_EXISTS)
+        if (status != 0 && status != WfpConstants.FWP_E_ALREADY_EXISTS)
         {
             throw new InvalidOperationException($"Error al crear subcapa en WFP. Código: 0x{status:X8}");
         }
@@ -1150,13 +1188,13 @@ public sealed class WfpManager : IWfpManager
 
     private static void ThrowIfFilterAddFailed(uint status, string label)
     {
-        if (status != 0 && status != FWP_E_ALREADY_EXISTS)
+        if (status != 0 && status != WfpConstants.FWP_E_ALREADY_EXISTS)
         {
             throw new InvalidOperationException($"FwpmFilterAdd0 ('{label}') falló. Código: 0x{status:X8}");
         }
     }
 
-    private static ulong AddIpFilter(IPAddress ip, IntPtr engineHandle)
+    private static ulong AddIpFilter(IPAddress ip, IntPtr engineHandle, out uint status)
     {
         if (ip.AddressFamily == AddressFamily.InterNetwork)
         {
@@ -1177,7 +1215,7 @@ public sealed class WfpManager : IWfpManager
                 }
             };
 
-            uint status = AddFilterCore(
+            status = AddFilterCore(
                 engineHandle, Guid.NewGuid(),
                 $"LockSuite Allow IP {ip}",
                 "Regla dinámica temporal abierta por resolución DNS permitida",
@@ -1207,7 +1245,7 @@ public sealed class WfpManager : IWfpManager
                     }
                 };
 
-                uint status = AddFilterCore(
+                status = AddFilterCore(
                     engineHandle, Guid.NewGuid(),
                     $"LockSuite Allow IPv6 {ip}",
                     "Regla dinámica temporal abierta por resolución DNS permitida",
@@ -1221,6 +1259,7 @@ public sealed class WfpManager : IWfpManager
             }
         }
 
+        status = 0;
         return 0;
     }
 

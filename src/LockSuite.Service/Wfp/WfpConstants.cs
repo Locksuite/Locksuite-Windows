@@ -68,4 +68,19 @@ public static class WfpConstants
     public const ushort PORT_DHCPV6_SERVER = 547;
     public const ushort PORT_HTTP = 80;
     public const ushort PORT_HTTPS = 443;
+
+    // Autenticación RPC para FwpmEngineOpen0
+    public const uint RPC_C_AUTHN_WINNT = 10;
+    public const uint RPC_C_AUTHN_DEFAULT = 0xFFFFFFFF;
+
+    // Códigos de error Win32 / RPC / WFP (winerror.h)
+    public const uint ERROR_ACCESS_DENIED = 0x00000005;
+    public const uint E_ACCESSDENIED = 0x80070005;
+    public const uint RPC_S_UNKNOWN_IF = 0x000006B5;
+    public const uint RPC_S_SERVER_UNAVAILABLE = 0x000006BA;
+    public const uint EPT_S_NOT_REGISTERED = 0x000006D9;
+    public const uint FWP_E_ALREADY_EXISTS = 0x80320009;
+    public const uint FWP_E_WRONG_SESSION = 0x8032000C;
+    public const uint FWP_E_TIMEOUT = 0x80320012;
+    public const uint FWP_E_INCOMPATIBLE_LIFETIME = 0x80320016;
 }

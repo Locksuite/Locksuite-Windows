@@ -7,7 +7,7 @@
 ; Luego compilar este script con ISCC.
 
 #define MyAppName "LockSuite Windows"
-#define MyAppVersion "0.6.0"
+#define MyAppVersion "0.6.1"
 #define MyAppPublisher "LockSuite Community"
 #define MyAppURL "https://github.com/Locksuite/Locksuite-Windows"
 #define MyAppExeName "LockSuite.UI.exe"

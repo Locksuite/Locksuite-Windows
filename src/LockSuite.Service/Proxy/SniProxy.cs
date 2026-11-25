@@ -43,7 +43,7 @@ public sealed class SniProxy : IDisposable
     private long _allowedConnections;
     private long _blockedConnections;
 
-    private const int HandshakeTimeoutMs = 5000;
+    private const int HandshakeTimeoutMs = 10000;
     private const int ConnectTimeoutMs = 8000;
     private const int MaxHttpsClientHelloBytes = 32 * 1024;
     private const int MaxHttpHeaderBytes = 16 * 1024;
@@ -174,6 +174,7 @@ public sealed class SniProxy : IDisposable
                     }
                     finally
                     {
+                        try { client.Shutdown(SocketShutdown.Both); } catch { }
                         try { client.Dispose(); } catch { }
                         _concurrency.Release();
                     }
