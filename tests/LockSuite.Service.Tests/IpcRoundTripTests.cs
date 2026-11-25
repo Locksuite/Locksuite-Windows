@@ -148,4 +148,65 @@ public class IpcRoundTripTests : IDisposable
         Assert.False(resp.Success);
         Assert.True(sw.Elapsed < TimeSpan.FromSeconds(6), $"tardo demasiado: {sw.Elapsed}");
     }
+
+    [Fact]
+    public async Task OversizedRequestLine_RejectedWithoutCrashingServer()
+    {
+        using (var pipe = new NamedPipeClientStream(".", _pipeName, PipeDirection.InOut, PipeOptions.Asynchronous))
+        {
+            await pipe.ConnectAsync(5000).WaitAsync(Guard);
+            using var reader = new StreamReader(pipe, LockSuiteClient.IpcEncoding, true, 4096, leaveOpen: true);
+
+            // Escribimos y leemos en paralelo porque un pipe bidireccional sin buffer puede
+            // bloquear WriteAsync cuando el servidor corta la lectura al alcanzar el límite.
+            var readTask = reader.ReadLineAsync();
+            var writeTask = Task.Run(async () =>
+            {
+                byte[] chunk = new byte[16_384];
+                Array.Fill(chunk, (byte)'A');
+                for (int i = 0; i < 20; i++) // 320 KB > 256 KB
+                {
+                    await pipe.WriteAsync(chunk);
+                }
+                await pipe.WriteAsync(new byte[] { (byte)'\n' });
+                await pipe.FlushAsync();
+            });
+
+            string? line = await readTask.WaitAsync(Guard);
+            try { await writeTask.WaitAsync(TimeSpan.FromSeconds(2)); } catch { /* pipe cerrado tras rechazo: esperado */ }
+
+            if (line != null)
+            {
+                var resp = IpcResponse.Deserialize(line);
+                Assert.False(resp!.Success);
+                Assert.Contains("límite", resp.ErrorMessage ?? "", StringComparison.OrdinalIgnoreCase);
+            }
+        }
+
+        // El servidor sigue vivo y responde normalmente después del intento de DoS
+        var client = new LockSuiteClient(_pipeName);
+        var ping = await client.SendCommandAsync("Ping", timeoutMs: 5000).WaitAsync(Guard);
+        Assert.True(ping.Success);
+    }
+
+    [Fact]
+    public async Task RequireTrustedServer_RejectsStandardUserPipe()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+
+        // En el entorno de test (usuario estándar sin elevación), el pipe pertenece al usuario actual (no SYSTEM ni Admin).
+        // Si requireTrustedServer=true está activo, el cliente debe rechazarlo antes de enviar nada.
+        var strictClient = new LockSuiteClient(_pipeName, requireTrustedServer: true);
+        var resp = await strictClient.SendCommandAsync("Ping", timeoutMs: 5000).WaitAsync(Guard);
+
+        // Solo falla si el proceso actual no es Admin/SYSTEM (en CI/dev estándar es usuario normal o admin elevado).
+        using var identity = System.Security.Principal.WindowsIdentity.GetCurrent();
+        var principal = new System.Security.Principal.WindowsPrincipal(identity);
+        bool isElevatedAdminOrSystem = identity.IsSystem || principal.IsInRole(System.Security.Principal.WindowsBuiltInRole.Administrator);
+        if (!isElevatedAdminOrSystem)
+        {
+            Assert.False(resp.Success);
+            Assert.Contains("propietario", resp.ErrorMessage ?? "", StringComparison.OrdinalIgnoreCase);
+        }
+    }
 }

@@ -31,7 +31,7 @@ public static class DomainMatcher
     private static readonly HashSet<string> KnownMultiPartPublicSuffixes = new(StringComparer.OrdinalIgnoreCase)
     {
         // Israel
-        "co.il", "org.il", "net.il", "ac.il", "gov.il", "muni.il", "idf.il", "k12.il",
+        "co.il", "org.il", "net.il", "ac.il", "gov.il", "muni.il", "idf.il", "k12.il", "edu.il",
         // Argentina
         "com.ar", "gob.ar", "gov.ar", "net.ar", "org.ar", "edu.ar", "int.ar", "mil.ar",
         // UK
@@ -42,17 +42,20 @@ public static class DomainMatcher
         "com.mx", "org.mx", "edu.mx", "gob.mx", "net.mx",
         // Spain
         "com.es", "org.es", "gob.es", "nom.es", "edu.es",
-        // Colombia, Chile, Peru, Uruguay
+        // Colombia, Chile, Peru, Uruguay y resto de Latinoamerica / Caribe
         "com.co", "org.co", "gov.co", "edu.co",
         "com.cl", "gob.cl",
         "com.pe", "org.pe", "gob.pe", "edu.pe",
         "com.uy", "org.uy", "gub.uy", "edu.uy",
+        "com.ve", "com.ec", "com.py", "com.bo", "com.pa", "com.do",
+        "com.gt", "com.sv", "com.hn", "com.ni", "com.cr", "com.pr",
         // Australia / NZ / SA
         "com.au", "net.au", "org.au", "edu.au", "gov.au", "asn.au", "id.au",
         "co.nz", "net.nz", "org.nz", "govt.nz", "ac.nz", "school.nz",
         "co.za", "org.za", "gov.za", "net.za", "ac.za", "edu.za",
         // Asia / Other
         "co.jp", "ne.jp", "or.jp", "go.jp", "ac.jp", "ed.jp",
+        "co.kr", "or.kr", "go.kr", "ac.kr",
         "com.cn", "net.cn", "org.cn", "gov.cn", "edu.cn",
         "com.tr", "org.tr", "gov.tr", "edu.tr",
         "com.sg", "org.sg", "gov.sg", "edu.sg",
@@ -214,10 +217,13 @@ public static class DomainMatcher
             {
                 // Comodin de etiqueta: solo en la primera, escrito "a secas" (sin "=", "*." ni "."),
                 // con al menos un caracter fijo y dejando al menos dos etiquetas fijas detras
-                // ("lh*.google.com" si; "*google.com" no, porque abarcaria todo un TLD).
+                // ("lh*.google.com" si; "*google.com" no, porque abarcaria todo un TLD;
+                // "a*.co.il" o "lh*.com.ar" tampoco, porque el sufijo restante es un public suffix).
                 if (i != 0 || exact || prefixed) return false;
                 if (label.Replace("*", string.Empty).Length == 0) return false;
                 if (labels.Length < 3) return false;
+                var suffix = string.Join('.', labels, 1, labels.Length - 1);
+                if (KnownMultiPartPublicSuffixes.Contains(suffix)) return false;
             }
 
             // Caracteres permitidos: letras, digitos, '-' (y '*' solo en el caso de arriba).
@@ -230,6 +236,26 @@ public static class DomainMatcher
             if (label[0] == '-' || label[^1] == '-') return false;
         }
 
+        // Rechaza IPs literales puras (ej. "1.2.3.4", "192.168.1.1") y TLDs numericos:
+        // en DNS el TLD nunca es puramente numerico.
+        if (AllAsciiDigits(labels[^1])) return false;
+        bool allNumeric = true;
+        foreach (var label in labels)
+        {
+            if (!AllAsciiDigits(label)) { allNumeric = false; break; }
+        }
+        if (allNumeric) return false;
+
+        return true;
+    }
+
+    private static bool AllAsciiDigits(string s)
+    {
+        if (s.Length == 0) return false;
+        foreach (char c in s)
+        {
+            if (c < '0' || c > '9') return false;
+        }
         return true;
     }
 }

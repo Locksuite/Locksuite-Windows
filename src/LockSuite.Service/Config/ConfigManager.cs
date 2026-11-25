@@ -53,6 +53,13 @@ public sealed class ConfigManager
     private volatile PatternSnapshot _snapshot = PatternSnapshot.Empty;
 
     public event Action<WhitelistConfig>? ConfigChanged;
+    public event Action<WhitelistConfig, bool>? ConfigChangedDetailed;
+
+    private void NotifyConfigChanged(WhitelistConfig cfg, bool revokeDynamicIps)
+    {
+        ConfigChangedDetailed?.Invoke(cfg, revokeDynamicIps);
+        ConfigChanged?.Invoke(cfg);
+    }
 
     public ConfigManager(ILogger<ConfigManager> logger, string? customPath = null)
     {
@@ -126,16 +133,30 @@ public sealed class ConfigManager
         lock (_lock)
         {
             var cfg = newConfig ?? new WhitelistConfig();
-            // Sanitiza patrones en paquetes personalizados
+            cfg.Packs ??= new();
+            cfg.Packs.RemoveAll(p => p is null);
+
+            // Sanitiza patrones en cualquier paquete que no sea un preset reconocido del catalogo
+            // (evita que un cliente IPC inyecte BuiltIn = true con Id = null o Id desconocido).
             foreach (var pack in cfg.Packs)
             {
-                if (!pack.BuiltIn)
+                pack.Domains ??= new();
+                pack.Excluded ??= new();
+                if (pack.Id is null || Presets.Find(pack.Id) is null)
                 {
                     pack.Domains.RemoveAll(d => !DomainMatcher.IsValidPattern(d));
                 }
             }
             // Los paquetes de fabrica siempre quedan integros (incluido el bloqueo fijo).
             PresetSync.Apply(cfg);
+            // Segunda pasada tras PresetSync por si se migraron extras de paquetes built-in a Personalizados.
+            foreach (var pack in cfg.Packs)
+            {
+                if (pack.Id is null || Presets.Find(pack.Id) is null)
+                {
+                    pack.Domains.RemoveAll(d => !DomainMatcher.IsValidPattern(d));
+                }
+            }
             _currentConfig = cfg;
             SaveToDisk(_currentConfig);
             RebuildPatternSnapshot();
@@ -144,7 +165,7 @@ public sealed class ConfigManager
         _logger.LogInformation("Configuracion de lista blanca actualizada. Patrones activos: {Count}, bloqueos: {Blocks}",
             ActivePatternCount, ActiveBlockPatternCount);
 
-        ConfigChanged?.Invoke(CurrentConfig);
+        NotifyConfigChanged(CurrentConfig, revokeDynamicIps: true);
     }
 
     public void TogglePack(string packName, bool enabled)
@@ -162,7 +183,7 @@ public sealed class ConfigManager
                 _logger.LogInformation("Paquete '{Pack}' {Status}", packName, enabled ? "activado" : "desactivado");
             }
         }
-        if (changed) ConfigChanged?.Invoke(CurrentConfig);
+        if (changed) NotifyConfigChanged(CurrentConfig, revokeDynamicIps: !enabled);
     }
 
     /// <summary>Activa o desactiva el registro de dominios bloqueados (modo aprendizaje).</summary>
@@ -174,7 +195,7 @@ public sealed class ConfigManager
             SaveToDisk(_currentConfig);
         }
         _logger.LogInformation("Modo aprendizaje {Status}", enabled ? "activado" : "desactivado");
-        ConfigChanged?.Invoke(CurrentConfig);
+        NotifyConfigChanged(CurrentConfig, revokeDynamicIps: false);
     }
 
     /// <summary>Estado actual del permiso de red local (direcciones privadas).</summary>
@@ -192,21 +213,44 @@ public sealed class ConfigManager
             SaveToDisk(_currentConfig);
         }
         _logger.LogInformation("Permiso de red local {Status}", enabled ? "activado" : "desactivado");
-        ConfigChanged?.Invoke(CurrentConfig);
+        NotifyConfigChanged(CurrentConfig, revokeDynamicIps: false);
+    }
+
+    /// <summary>Estado actual de la inspección SNI TLS.</summary>
+    public bool SniInspectionEnabled
+    {
+        get { lock (_lock) { return _currentConfig.SniInspectionEnabled; } }
+    }
+
+    /// <summary>Activa o desactiva la inspección SNI TLS.</summary>
+    public void SetSniInspectionEnabled(bool enabled)
+    {
+        lock (_lock)
+        {
+            _currentConfig.SniInspectionEnabled = enabled;
+            SaveToDisk(_currentConfig);
+        }
+        _logger.LogInformation("Inspección SNI {Status}", enabled ? "activada" : "desactivada");
+        NotifyConfigChanged(CurrentConfig, revokeDynamicIps: false);
     }
 
     /// <summary>
     /// Agrega un dominio a un paquete (por defecto "Personalizados").
-    ///   - Si el dominio es de un paquete de fabrica y el tutor lo habia quitado, se restituye ahi.
+    ///   - Si el dominio es de un paquete de fabrica permitidor y el tutor lo habia quitado, se restituye ahi.
     ///   - Los paquetes de fabrica no reciben dominios nuevos: van a "Personalizados"
     ///     (si no, la sincronizacion de presets los moveria igual).
-    ///   - Nunca se agrega a un paquete de bloqueo (eso convertiria un bloqueo en permiso o viceversa).
+    ///   - Nunca se agrega ni restituye en un paquete de bloqueo (eso convertiria un bloqueo en permiso o viceversa).
     /// </summary>
     public bool AddDomain(string domain, string? targetPackName = null)
+        => AddDomain(domain, targetPackName, out _);
+
+    public bool AddDomain(string domain, string? targetPackName, out string? errorMessage)
     {
+        errorMessage = null;
         domain = DomainMatcher.Normalize(domain);
         if (!DomainMatcher.IsValidPattern(domain))
         {
+            errorMessage = $"El patrón '{domain}' es inválido o demasiado amplio (no se permiten TLDs sueltos, sufijos públicos ni IPs).";
             _logger.LogWarning("Dominio rechazado por patron invalido o peligroso: '{Domain}'", domain);
             return false;
         }
@@ -214,16 +258,20 @@ public sealed class ConfigManager
         string? addedTo = null;
         lock (_lock)
         {
-            // 1) ¿Es un dominio de fabrica que el tutor habia quitado? Se restituye en su paquete.
-            var restorePack = _currentConfig.Packs.Find(p => p.BuiltIn &&
+            // 1) ¿Es un dominio de fabrica de paquetes permitidores que el tutor habia quitado?
+            // Se restituye en TODOS los presets permitidores donde estuviera excluido (nunca en paquetes de bloqueo).
+            var restorePacks = _currentConfig.Packs.FindAll(p => p.BuiltIn && !p.Blocks &&
                 p.Excluded.Exists(d => string.Equals(DomainMatcher.Normalize(d), domain, StringComparison.Ordinal)));
-            if (restorePack is not null)
+            if (restorePacks.Count > 0)
             {
-                restorePack.Excluded.RemoveAll(d => string.Equals(DomainMatcher.Normalize(d), domain, StringComparison.Ordinal));
-                PresetSync.Apply(_currentConfig);   // lo vuelve a poner en su lugar dentro del paquete
+                foreach (var restorePack in restorePacks)
+                {
+                    restorePack.Excluded.RemoveAll(d => string.Equals(DomainMatcher.Normalize(d), domain, StringComparison.Ordinal));
+                }
+                PresetSync.Apply(_currentConfig);   // lo vuelve a poner en su lugar dentro de cada paquete
                 SaveToDisk(_currentConfig);
                 RebuildPatternSnapshot();
-                addedTo = restorePack.Name;
+                addedTo = string.Join(", ", restorePacks.Select(p => p.Name));
             }
             else
             {
@@ -232,6 +280,7 @@ public sealed class ConfigManager
 
                 if (pack is not null && pack.Blocks)
                 {
+                    errorMessage = "No se puede agregar a un paquete de bloqueo.";
                     _logger.LogWarning("No se agrega '{Domain}' al paquete de bloqueo '{Pack}'", domain, pack.Name);
                     return false;
                 }
@@ -266,7 +315,7 @@ public sealed class ConfigManager
         }
 
         _logger.LogInformation("Dominio '{Domain}' agregado al paquete '{Pack}'", domain, addedTo);
-        ConfigChanged?.Invoke(CurrentConfig);
+        NotifyConfigChanged(CurrentConfig, revokeDynamicIps: false);
         return true;
     }
 
@@ -304,7 +353,7 @@ public sealed class ConfigManager
 
         if (removedAny)
         {
-            ConfigChanged?.Invoke(CurrentConfig);
+            NotifyConfigChanged(CurrentConfig, revokeDynamicIps: true);
         }
         return removedAny;
     }

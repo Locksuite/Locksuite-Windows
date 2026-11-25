@@ -285,4 +285,118 @@ public class ConfigManagerTests : IDisposable
         Assert.DoesNotContain("com.ar", pack.Domains);
         Assert.DoesNotContain("*invalido.com", pack.Domains);
     }
+
+    [Fact]
+    public void UpdateConfig_SanitizesFakeBuiltInPackWithNullId()
+    {
+        var manager = new ConfigManager(NullLogger<ConfigManager>.Instance, _tempConfigFile);
+        var cfg = manager.CurrentConfig;
+        cfg.Packs.Add(new LockSuite.Core.DomainPack
+        {
+            Id = null,
+            Name = "Falso BuiltIn",
+            BuiltIn = true,
+            Enabled = true,
+            Domains = new System.Collections.Generic.List<string>
+            {
+                "com",
+                "co.il",
+                "valido-inyectado.com"
+            }
+        });
+
+        manager.UpdateConfig(cfg);
+
+        var pack = manager.CurrentConfig.Packs.Find(p => p.Name == "Falso BuiltIn");
+        Assert.NotNull(pack);
+        Assert.Contains("valido-inyectado.com", pack!.Domains);
+        Assert.DoesNotContain("com", pack.Domains);
+        Assert.DoesNotContain("co.il", pack.Domains);
+    }
+
+    [Fact]
+    public void AddDomain_ExcludedFromKosherBlock_DoesNotRestoreInBlockPack()
+    {
+        var manager = new ConfigManager(NullLogger<ConfigManager>.Instance, _tempConfigFile);
+        Assert.True(manager.RemoveDomain("www.google.com"));
+
+        var kosherBefore = manager.CurrentConfig.Packs.Find(p => p.Id == LockSuite.Core.Presets.IdKosherBlock)!;
+        Assert.Contains("www.google.com", kosherBefore.Excluded);
+        Assert.DoesNotContain("www.google.com", kosherBefore.Domains);
+
+        // Volver a agregarlo NO debe restituirlo en kosher-block; va a Personalizados.
+        Assert.True(manager.AddDomain("www.google.com"));
+
+        var kosherAfter = manager.CurrentConfig.Packs.Find(p => p.Id == LockSuite.Core.Presets.IdKosherBlock)!;
+        Assert.Contains("www.google.com", kosherAfter.Excluded);
+        Assert.DoesNotContain("www.google.com", kosherAfter.Domains);
+
+        var custom = manager.CurrentConfig.Packs.Find(p => p.Name == LockSuite.Core.Presets.CustomPackName)!;
+        Assert.Contains("www.google.com", custom.Domains);
+    }
+
+    [Fact]
+    public void AddDomain_RestoresMultiPackExcludedDomain_AccountsGoogleCom()
+    {
+        var manager = new ConfigManager(NullLogger<ConfigManager>.Instance, _tempConfigFile);
+        Assert.True(manager.RemoveDomain("accounts.google.com"));
+
+        var targetIds = new[]
+        {
+            LockSuite.Core.Presets.IdGmail,
+            LockSuite.Core.Presets.IdGoogleChat,
+            LockSuite.Core.Presets.IdGoogleDrive,
+            LockSuite.Core.Presets.IdGooglePhotos,
+            LockSuite.Core.Presets.IdProg,
+            LockSuite.Core.Presets.IdMitmachim
+        };
+
+        foreach (var id in targetIds)
+        {
+            var pack = manager.CurrentConfig.Packs.Find(p => p.Id == id)!;
+            Assert.Contains("accounts.google.com", pack.Excluded);
+            Assert.DoesNotContain("accounts.google.com", pack.Domains);
+        }
+
+        Assert.True(manager.AddDomain("accounts.google.com"));
+
+        foreach (var id in targetIds)
+        {
+            var pack = manager.CurrentConfig.Packs.Find(p => p.Id == id)!;
+            Assert.DoesNotContain("accounts.google.com", pack.Excluded);
+            Assert.Contains("accounts.google.com", pack.Domains);
+        }
+    }
+
+    [Fact]
+    public void AddDomain_WithOutErrorMessage_ReturnsClearErrors()
+    {
+        var manager = new ConfigManager(NullLogger<ConfigManager>.Instance, _tempConfigFile);
+
+        Assert.False(manager.AddDomain("com", null, out string? invalidErr));
+        Assert.False(string.IsNullOrWhiteSpace(invalidErr));
+
+        Assert.False(manager.AddDomain("ejemplo.com", "Bloqueo fijo: buscador de Google y Gemini", out string? blockErr));
+        Assert.Equal("No se puede agregar a un paquete de bloqueo.", blockErr);
+    }
+
+    [Fact]
+    public void ConfigChangedDetailed_ReportsRevokeDynamicIps()
+    {
+        var manager = new ConfigManager(NullLogger<ConfigManager>.Instance, _tempConfigFile);
+        var events = new System.Collections.Generic.List<bool>();
+        manager.ConfigChangedDetailed += (_, revoke) => events.Add(revoke);
+
+        manager.AddDomain("detalle-uno.com");          // false
+        manager.RemoveDomain("detalle-uno.com");       // true
+        manager.TogglePack("Mercado Pago", false);     // true
+        manager.TogglePack("Mercado Pago", true);      // false
+        manager.SetLearningMode(false);                // false
+        manager.SetAllowLocalNetwork(true);            // false
+        manager.SetSniInspectionEnabled(false);        // false
+        manager.UpdateConfig(manager.CurrentConfig);   // true
+
+        Assert.Equal(new[] { false, true, true, false, false, false, false, true }, events);
+        Assert.False(manager.SniInspectionEnabled);
+    }
 }

@@ -129,4 +129,89 @@ public class UpdateManagerTests
             try { File.Delete(tmp); } catch { }
         }
     }
+
+    [Theory]
+    [InlineData("api.github.com", true)]
+    [InlineData("github.com", true)]
+    [InlineData("objects.githubusercontent.com", true)]
+    [InlineData("githubusercontent.com", true)]
+    [InlineData("evil.com", false)]
+    [InlineData("github.com.evil.com", false)]
+    [InlineData("", false)]
+    public void IsAllowedUpdateHost_ValidatesAllowlistCorrectly(string host, bool expected)
+    {
+        Assert.Equal(expected, UpdateManager.IsAllowedUpdateHost(host));
+    }
+
+    [Fact]
+    public async Task CheckAndApplyUpdate_DeletesDownloadedExe_WhenSha256DoesNotMatch()
+    {
+        string tempDir = Path.Combine(Path.GetTempPath(), "ls_upd_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            const string assetName = "LockSuiteSetup-99.0.0.exe";
+            string json = $$"""
+            {
+                "tag_name": "v99.0.0",
+                "assets": [
+                    {
+                        "name": "{{assetName}}",
+                        "browser_download_url": "https://github.com/Locksuite/Locksuite-Windows/releases/download/v99.0.0/{{assetName}}"
+                    },
+                    {
+                        "name": "SHA256SUMS.txt",
+                        "browser_download_url": "https://github.com/Locksuite/Locksuite-Windows/releases/download/v99.0.0/SHA256SUMS.txt"
+                    }
+                ]
+            }
+            """;
+
+            byte[] fakeExeBytes = new byte[1_050_000];
+            string wrongSha = new string('0', 64) + "  " + assetName + "\n";
+
+            var handler = new MockHttpMessageHandler(req =>
+            {
+                string url = req.RequestUri?.ToString() ?? "";
+                if (url.EndsWith("/releases/latest", StringComparison.OrdinalIgnoreCase))
+                {
+                    return new HttpResponseMessage(HttpStatusCode.OK)
+                    {
+                        Content = new StringContent(json, Encoding.UTF8, "application/json")
+                    };
+                }
+                if (url.EndsWith(assetName, StringComparison.OrdinalIgnoreCase))
+                {
+                    return new HttpResponseMessage(HttpStatusCode.OK)
+                    {
+                        Content = new ByteArrayContent(fakeExeBytes)
+                    };
+                }
+                if (url.EndsWith("SHA256SUMS.txt", StringComparison.OrdinalIgnoreCase))
+                {
+                    return new HttpResponseMessage(HttpStatusCode.OK)
+                    {
+                        Content = new StringContent(wrongSha, Encoding.UTF8, "text/plain")
+                    };
+                }
+                return new HttpResponseMessage(HttpStatusCode.NotFound);
+            });
+
+            using var client = new HttpClient(handler);
+            using var manager = new UpdateManager(NullLogger<UpdateManager>.Instance, client)
+            {
+                UpdatesDirectoryOverride = tempDir
+            };
+
+            bool result = await manager.CheckAndApplyUpdateAsync(CancellationToken.None);
+
+            Assert.False(result);
+            Assert.False(File.Exists(Path.Combine(tempDir, assetName)));
+        }
+        finally
+        {
+            try { Directory.Delete(tempDir, recursive: true); } catch { }
+        }
+    }
 }

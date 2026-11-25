@@ -196,16 +196,16 @@
                         </Border>
 
                         <!-- Hero Banner -->
-                        <Border Background="#1E40AF" CornerRadius="10" Padding="20" Margin="0,0,0,20">
+                        <Border Background="{Binding HeroBannerBackground}" CornerRadius="10" Padding="20" Margin="0,0,0,20">
                             <Grid>
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*"/>
                                     <ColumnDefinition Width="Auto"/>
                                 </Grid.ColumnDefinitions>
                                 <StackPanel Grid.Column="0">
-                                    <TextBlock Text="Protección por Lista Blanca Activa" FontSize="18" FontWeight="Bold" Foreground="White"/>
-                                    <TextBlock Text="Todo internet está bloqueado por defecto. Solo las conexiones a sitios permitidos en la lista son resueltas y autorizadas temporalmente en WFP." 
-                                               FontSize="13" Foreground="#DBEAFE" Margin="0,6,0,0" TextWrapping="Wrap"/>
+                                    <TextBlock Text="{Binding HeroBannerTitle}" FontSize="18" FontWeight="Bold" Foreground="White"/>
+                                    <TextBlock Text="{Binding HeroBannerSubtitle}" 
+                                               FontSize="13" Foreground="#F1F5F9" Margin="0,6,0,0" TextWrapping="Wrap"/>
                                 </StackPanel>
                                 <TextBlock Grid.Column="1" Text="🔒" FontSize="36" VerticalAlignment="Center" Margin="16,0,0,0"/>
                             </Grid>
@@ -251,7 +251,7 @@
                                 <Grid Margin="0,0,0,8">
                                     <Grid.ColumnDefinitions><ColumnDefinition Width="200"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                                     <TextBlock Grid.Column="0" Text="Resolutor DNS Local:" Foreground="#64748B"/>
-                                    <TextBlock Grid.Column="1" Text="127.0.0.1:53 (UDP) — Redirección NRPT Activa" FontWeight="Medium"/>
+                                    <TextBlock Grid.Column="1" Text="{Binding DnsSummaryText}" FontWeight="Medium"/>
                                 </Grid>
                                 <Grid Margin="0,0,0,8">
                                     <Grid.ColumnDefinitions><ColumnDefinition Width="200"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
@@ -265,6 +265,11 @@
                                 </Grid>
                                 <Grid Margin="0,0,0,8">
                                     <Grid.ColumnDefinitions><ColumnDefinition Width="200"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Text="Inspección SNI:" Foreground="#64748B"/>
+                                    <TextBlock Grid.Column="1" Text="{Binding SniSummaryText}" FontWeight="Medium"/>
+                                </Grid>
+                                <Grid Margin="0,0,0,8">
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="200"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                                     <TextBlock Grid.Column="0" Text="Resolutor DNS escuchando:" Foreground="#64748B"/>
                                     <TextBlock Grid.Column="1" FontWeight="Medium"
                                                Text="{Binding IsDnsListening, Converter={StaticResource BoolYesNo}}"/>
@@ -272,7 +277,7 @@
                                 <Grid Margin="0,0,0,4">
                                     <Grid.ColumnDefinitions><ColumnDefinition Width="200"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                                     <TextBlock Grid.Column="0" Text="Política ante Caída:" Foreground="#64748B"/>
-                                    <TextBlock Grid.Column="1" Text="Fail-Closed (Cerrado por defecto)" FontWeight="Medium"/>
+                                    <TextBlock Grid.Column="1" Text="{Binding FailClosedSummaryText}" FontWeight="Medium"/>
                                 </Grid>
                             </StackPanel>
                         </Border>
@@ -403,10 +408,38 @@
 
                         <!-- Detalle: todos los paquetes y sus dominios -->
                         <TextBlock Text="Paquetes y dominios" FontSize="16" FontWeight="Bold" Foreground="#0F172A" Margin="0,8,0,4"/>
-                        <TextBlock FontSize="12" Foreground="#64748B" TextWrapping="Wrap" Margin="0,0,0,12"
+                        <TextBlock FontSize="12" Foreground="#64748B" TextWrapping="Wrap" Margin="0,0,0,10"
                                    Text="«ejemplo.com» habilita el sitio y sus subdominios; «=ejemplo.com» solo ese sitio exacto; «lh*.ejemplo.com» cualquier nombre que empiece así. Los paquetes de bloqueo (🚫) tienen prioridad sobre todo lo permitido."/>
 
-                        <ItemsControl ItemsSource="{Binding Packs}">
+                        <Border Background="White" BorderBrush="#CBD5E1" BorderThickness="1" CornerRadius="6" Margin="0,0,0,12" Padding="10,6">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" Text="🔍" FontSize="13" Foreground="#94A3B8" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                <TextBox x:Name="TxtPackSearch" Grid.Column="1"
+                                         Text="{Binding SearchQuery, UpdateSourceTrigger=PropertyChanged}"
+                                         BorderThickness="0" Background="Transparent" FontSize="13" Foreground="#0F172A"
+                                         VerticalContentAlignment="Center"/>
+                                <TextBlock Grid.Column="1" Text="Buscar paquete o dominio..."
+                                           FontSize="13" Foreground="#94A3B8" VerticalAlignment="Center"
+                                           IsHitTestVisible="False">
+                                    <TextBlock.Style>
+                                        <Style TargetType="TextBlock">
+                                            <Setter Property="Visibility" Value="Collapsed"/>
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding Text, ElementName=TxtPackSearch}" Value="">
+                                                    <Setter Property="Visibility" Value="Visible"/>
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBlock.Style>
+                                </TextBlock>
+                            </Grid>
+                        </Border>
+
+                        <ItemsControl ItemsSource="{Binding FilteredPacks}">
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate>
                                     <Border CornerRadius="8" Padding="16" Margin="0,0,0,12" BorderThickness="1">
@@ -572,9 +605,15 @@
                                 <CheckBox IsChecked="{Binding LearningMode}" Content="Modo Aprendizaje (Registrar dominios no permitidos para su aprobación)"
                                           Margin="0,0,0,8" Cursor="Hand" Click="ChkLearningMode_Click"
                                           ToolTip="Requiere autenticación del tutor para cambiarlo."/>
-                                <CheckBox IsChecked="{Binding AllowLocalNetwork}" Content="Permitir la red local (impresoras, router, equipos de la casa)"
+                                <CheckBox x:Name="ChkAllowLocalNetwork" IsChecked="{Binding AllowLocalNetwork}" Content="Permitir la red local (impresoras, router, equipos de la casa)"
                                           Margin="0,0,0,4" Cursor="Hand" Click="ChkAllowLocalNetwork_Click"
-                                          ToolTip="Abre solo direcciones privadas (192.168.x, 10.x, etc.). Internet sigue filtrado igual. Requiere autenticación del tutor."/>
+                                          ToolTip="Abre solo direcciones privadas (192.168.x, 10.x, etc.). Precaución: un dispositivo/celular en la misma red o hotspot con un proxy podría puentear el filtro."/>
+                                <TextBlock Text="Abre solo direcciones privadas (192.168.x, 10.x, etc.). Precaución: un dispositivo/celular en la misma red o hotspot con un proxy podría puentear el filtro."
+                                           FontSize="11" Foreground="#92400E" Margin="22,0,0,8" TextWrapping="Wrap"/>
+                                <CheckBox x:Name="ChkSniInspection" IsChecked="{Binding SniInspectionEnabled}"
+                                          Content="Inspección SNI transparente (Fase 2 — bloquea Google/Cloudflare compartidos por SNI)"
+                                          Margin="0,0,0,4" Cursor="Hand" Click="ChkSniInspection_Click"
+                                          ToolTip="Requiere autenticación del tutor para cambiarlo."/>
                             </StackPanel>
                         </Border>
 
@@ -596,10 +635,10 @@
                         <Border Background="White" CornerRadius="8" Padding="18"
                                 BorderBrush="#E2E8F0" BorderThickness="1">
                             <StackPanel>
-                                <TextBlock Text="Prueba de Seguridad de Filtros WFP" FontSize="15" FontWeight="SemiBold" Foreground="#0F172A"/>
-                                <TextBlock Text="Permite verificar que WFP bloquea correctamente el tráfico de salida y aplica auto-rollback en 30 segundos para evitar cualquier riesgo de desconexión accidental."
+                                <TextBlock Text="Estado de Filtros WFP" FontSize="15" FontWeight="SemiBold" Foreground="#0F172A"/>
+                                <TextBlock Text="Consulta el estado actual de los filtros WFP, las reglas activas y el resolutor local sin alterar la protección."
                                            FontSize="12" Foreground="#64748B" Margin="0,4,0,12" TextWrapping="Wrap"/>
-                                <Button Content="Ejecutar Prueba WFP (30s seguro)" Width="240" Height="32"
+                                <Button Content="Verificar Estado de Filtros WFP" Width="240" Height="32"
                                         HorizontalAlignment="Left" Background="#475569" Foreground="White"
                                         FontWeight="SemiBold" BorderThickness="0" Cursor="Hand"
                                         Click="BtnTestWfp_Click"/>

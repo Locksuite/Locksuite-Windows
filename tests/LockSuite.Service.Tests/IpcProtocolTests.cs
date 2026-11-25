@@ -148,6 +148,121 @@ public class IpcProtocolTests : IDisposable
         });
         Assert.True(removeWithToken.Success);
         Assert.False(_configManager.IsAllowed("permitido-test.com"));
+
+        // 7. TestWfp es diagnóstico no destructivo y mantiene WFP activo
+        var testWfpResp = _server.ProcessRequest(new IpcRequest
+        {
+            Command = "TestWfp",
+            SessionToken = token
+        });
+        Assert.True(testWfpResp.Success);
+        Assert.True(_wfpManager.IsActive);
+
+        // 8. Logout invalida el token de inmediato
+        var logoutResp = _server.ProcessRequest(new IpcRequest
+        {
+            Command = "Logout",
+            SessionToken = token
+        });
+        Assert.True(logoutResp.Success);
+        var afterLogout = _server.ProcessRequest(new IpcRequest
+        {
+            Command = "TestWfp",
+            SessionToken = token
+        });
+        Assert.False(afterLogout.Success);
+        Assert.Equal("No autorizado", afterLogout.ErrorMessage);
+    }
+
+    [Fact]
+    public void SaveConfig_RejectsSpoofedBuiltInPackWithDangerousPattern()
+    {
+        _server.ProcessRequest(new IpcRequest
+        {
+            Command = "SetInitialPassword",
+            Payload = JsonSerializer.Serialize(new AuthRequestDto { Password = "ClaveMaestra123!" })
+        });
+        var auth = _server.ProcessRequest(new IpcRequest
+        {
+            Command = "Authenticate",
+            Payload = JsonSerializer.Serialize(new AuthRequestDto { Password = "ClaveMaestra123!" })
+        });
+        string token = auth.Payload!;
+
+        var cfg = Presets.DefaultConfig();
+        cfg.Packs.Add(new DomainPack
+        {
+            Id = null,
+            Name = "Falso BuiltIn",
+            BuiltIn = true,
+            Enabled = true,
+            Domains = { "com" }
+        });
+
+        var resp = _server.ProcessRequest(new IpcRequest
+        {
+            Command = "SaveConfig",
+            SessionToken = token,
+            Payload = cfg.ToJson()
+        });
+        Assert.False(resp.Success);
+    }
+
+    [Fact]
+    public void AddDomain_InvalidPattern_ReturnsDescriptiveError()
+    {
+        _server.ProcessRequest(new IpcRequest
+        {
+            Command = "SetInitialPassword",
+            Payload = JsonSerializer.Serialize(new AuthRequestDto { Password = "ClaveMaestra123!" })
+        });
+        var auth = _server.ProcessRequest(new IpcRequest
+        {
+            Command = "Authenticate",
+            Payload = JsonSerializer.Serialize(new AuthRequestDto { Password = "ClaveMaestra123!" })
+        });
+        string token = auth.Payload!;
+
+        var resp = _server.ProcessRequest(new IpcRequest
+        {
+            Command = "AddDomain",
+            SessionToken = token,
+            Payload = JsonSerializer.Serialize(new AddDomainDto { Domain = "co.il", PackName = "Personalizados" })
+        });
+        Assert.False(resp.Success);
+        Assert.Contains("inválido", resp.ErrorMessage ?? "", StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void SetSniInspection_RequiresAuthAndTogglesConfig()
+    {
+        var unauth = _server.ProcessRequest(new IpcRequest
+        {
+            Command = "SetSniInspection",
+            Payload = "false"
+        });
+        Assert.False(unauth.Success);
+
+        _server.ProcessRequest(new IpcRequest
+        {
+            Command = "SetInitialPassword",
+            Payload = JsonSerializer.Serialize(new AuthRequestDto { Password = "ClaveMaestra123!" })
+        });
+        var auth = _server.ProcessRequest(new IpcRequest
+        {
+            Command = "Authenticate",
+            Payload = JsonSerializer.Serialize(new AuthRequestDto { Password = "ClaveMaestra123!" })
+        });
+        string token = auth.Payload!;
+
+        var disable = _server.ProcessRequest(new IpcRequest
+        {
+            Command = "SetSniInspection",
+            SessionToken = token,
+            Payload = "false"
+        });
+        Assert.True(disable.Success);
+        Assert.False(_configManager.SniInspectionEnabled);
     }
 
     private static bool initOk(IpcResponse r) => r.Success;

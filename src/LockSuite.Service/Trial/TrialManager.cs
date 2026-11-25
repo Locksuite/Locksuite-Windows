@@ -87,7 +87,7 @@ public sealed class TrialManager
 
     public void StartTrial(int durationMinutes, TrialEndAction endAction, bool requireTutorToRemove, DateTimeOffset? startUtc = null)
     {
-        if (durationMinutes < 1) durationMinutes = 1;
+        durationMinutes = Math.Clamp(durationMinutes, 1, 525_600);
         lock (_lock)
         {
             _config = TrialConfig.StartNow(durationMinutes, endAction, requireTutorToRemove, startUtc ?? DateTimeOffset.UtcNow);
@@ -159,27 +159,39 @@ public sealed class TrialManager
     {
         if (_removalLaunched) return;
         _removalLaunched = true;
+
+        string? uninstaller = FindUninstaller();
+        if (uninstaller == null)
+        {
+            _logger.LogWarning("No se encontró el desinstalador (unins000.exe). ¿Ejecución no instalada? No se desinstala.");
+            _removalLaunched = false;
+            return;
+        }
+
         try
         {
-            string? uninstaller = FindUninstaller();
-            if (uninstaller == null)
-            {
-                _logger.LogWarning("No se encontró el desinstalador (unins000.exe). ¿Ejecución no instalada? No se desinstala.");
-                _removalLaunched = false;
-                return;
-            }
             var psi = new ProcessStartInfo
             {
                 FileName = uninstaller,
                 Arguments = "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART",
-                UseShellExecute = true
+                UseShellExecute = false
             };
-            Process.Start(psi);
+            var proc = Process.Start(psi);
+            if (proc == null)
+            {
+                _logger.LogError("Process.Start devolvió null al lanzar el desinstalador: {Path}", uninstaller);
+                _config.Decided = "none";
+                Save(_config);
+                _removalLaunched = false;
+                return;
+            }
             _logger.LogInformation("Desinstalador lanzado: {Path}", uninstaller);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Fallo al lanzar el desinstalador de LockSuite.");
+            _config.Decided = "none";
+            Save(_config);
             _removalLaunched = false; // permitir reintento
         }
     }

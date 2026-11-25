@@ -1,6 +1,11 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
+using System.Net;
+using System.Net.NetworkInformation;
+using System.Net.Sockets;
 using System.Runtime.InteropServices;
+using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 
 namespace LockSuite.Service.Dns;
@@ -75,15 +80,86 @@ public sealed class DnsConfigurator
             };
             using var p = Process.Start(psi);
             if (p == null) return;
+            var outTask = p.StandardOutput.ReadToEndAsync();
+            var errTask = p.StandardError.ReadToEndAsync();
             if (!p.WaitForExit(5000)) { try { p.Kill(true); } catch { } return; }
-            _ = p.StandardOutput.ReadToEnd();
-            _ = p.StandardError.ReadToEnd();
+            Task.WhenAll(outTask, errTask).Wait(1000);
             _logger.LogInformation("Caché DNS del sistema vaciada (flushdns).");
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "No se pudo vaciar la caché DNS.");
         }
+    }
+
+    /// <summary>
+    /// Captura los servidores DNS actualmente configurados en las interfaces de red activas
+    /// (antes de aplicar la regla NRPT), excluyendo loopback, comodines y site-local IPv6 (fec0::/10).
+    /// </summary>
+    public IReadOnlyList<IPAddress> CaptureCurrentDnsServers()
+    {
+        var result = new List<IPAddress>();
+        var seen = new HashSet<IPAddress>();
+
+        try
+        {
+            foreach (var nic in NetworkInterface.GetAllNetworkInterfaces())
+            {
+                if (nic.OperationalStatus != OperationalStatus.Up ||
+                    nic.NetworkInterfaceType == NetworkInterfaceType.Loopback)
+                {
+                    continue;
+                }
+
+                IPInterfaceProperties props;
+                try
+                {
+                    props = nic.GetIPProperties();
+                }
+                catch
+                {
+                    continue;
+                }
+
+                foreach (var dns in props.DnsAddresses)
+                {
+                    if (IsExcludedDnsAddress(dns)) continue;
+                    if (seen.Add(dns))
+                    {
+                        result.Add(dns);
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "No se pudieron capturar los servidores DNS del adaptador.");
+        }
+
+        return result;
+    }
+
+    private static bool IsExcludedDnsAddress(IPAddress ip)
+    {
+        if (ip.IsIPv4MappedToIPv6) ip = ip.MapToIPv4();
+        if (IPAddress.IsLoopback(ip)) return true;
+        if (ip.Equals(IPAddress.Any) || ip.Equals(IPAddress.None) ||
+            ip.Equals(IPAddress.IPv6Any) || ip.Equals(IPAddress.IPv6None))
+        {
+            return true;
+        }
+
+        if (ip.AddressFamily == AddressFamily.InterNetworkV6)
+        {
+            if (ip.IsIPv6SiteLocal) return true;
+            byte[] bytes = ip.GetAddressBytes();
+            if (bytes.Length == 16 && bytes[0] == 0xFE && (bytes[1] & 0xC0) == 0xC0)
+            {
+                return true; // fec0::/10
+            }
+        }
+
+        return false;
     }
 
     /// <summary>Remueve la regla NRPT de LockSuite si fue aplicada.</summary>
@@ -120,8 +196,9 @@ public sealed class DnsConfigurator
         using var process = Process.Start(psi);
         if (process == null) return -1;
 
-        // Esperar primero (la salida de estos cmdlets es minima) y luego leer, para no
-        // bloquear el hilo si algun stream se demora.
+        var outTask = process.StandardOutput.ReadToEndAsync();
+        var errTask = process.StandardError.ReadToEndAsync();
+
         if (!process.WaitForExit(8000))
         {
             try { process.Kill(true); } catch { /* best-effort */ }
@@ -129,8 +206,8 @@ public sealed class DnsConfigurator
             return -1;
         }
 
-        stderr = process.StandardError.ReadToEnd();
-        _ = process.StandardOutput.ReadToEnd();
+        Task.WhenAll(outTask, errTask).Wait(1000);
+        stderr = errTask.IsCompletedSuccessfully ? errTask.Result : string.Empty;
         return process.ExitCode;
     }
 }

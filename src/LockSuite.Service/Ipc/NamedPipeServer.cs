@@ -11,6 +11,7 @@ using LockSuite.Core;
 using LockSuite.Service.Config;
 using LockSuite.Service.Dns;
 using LockSuite.Service.Learning;
+using LockSuite.Service.Proxy;
 using LockSuite.Service.Security;
 using LockSuite.Service.Trial;
 using LockSuite.Service.Wfp;
@@ -20,6 +21,9 @@ namespace LockSuite.Service.Ipc;
 
 public sealed class NamedPipeServer : IDisposable
 {
+    private const int MaxRequestLineChars = 262_144; // 256 KB máx por petición (cierra DoS OOM)
+    private const int MaxConcurrentClients = 32;
+
     private readonly ILogger<NamedPipeServer> _logger;
     private readonly ConfigManager _configManager;
     private readonly SecurityManager _securityManager;
@@ -28,10 +32,13 @@ public sealed class NamedPipeServer : IDisposable
     private readonly LearningManager _learningManager;
     private readonly TrialManager? _trialManager;
     private readonly LockSuite.Service.CaptivePortal.CaptivePortalManager? _captivePortal;
+    private readonly SniProxy? _sniProxy;
+    private readonly DnsConfigurator? _dnsConfigurator;
     private readonly string _pipeName;
 
     private CancellationTokenSource? _cts;
     private Task? _serverTask;
+    private int _activeClients;
 
     public NamedPipeServer(
         ILogger<NamedPipeServer> logger,
@@ -42,7 +49,9 @@ public sealed class NamedPipeServer : IDisposable
         LearningManager learningManager,
         TrialManager? trialManager = null,
         string? pipeName = null,
-        LockSuite.Service.CaptivePortal.CaptivePortalManager? captivePortal = null)
+        LockSuite.Service.CaptivePortal.CaptivePortalManager? captivePortal = null,
+        SniProxy? sniProxy = null,
+        DnsConfigurator? dnsConfigurator = null)
     {
         _logger = logger;
         _configManager = configManager;
@@ -52,6 +61,8 @@ public sealed class NamedPipeServer : IDisposable
         _learningManager = learningManager;
         _trialManager = trialManager;
         _captivePortal = captivePortal;
+        _sniProxy = sniProxy;
+        _dnsConfigurator = dnsConfigurator;
         _pipeName = pipeName ?? IpcConstants.PipeName;
     }
 
@@ -80,11 +91,25 @@ public sealed class NamedPipeServer : IDisposable
                 var pipeServer = CreatePipeServer(_pipeName);
                 await pipeServer.WaitForConnectionAsync(token);
 
+                if (Interlocked.Increment(ref _activeClients) > MaxConcurrentClients)
+                {
+                    Interlocked.Decrement(ref _activeClients);
+                    try { pipeServer.Dispose(); } catch { }
+                    continue;
+                }
+
                 _ = Task.Run(async () =>
                 {
-                    using (pipeServer)
+                    try
                     {
-                        await HandleClientAsync(pipeServer, token);
+                        using (pipeServer)
+                        {
+                            await HandleClientAsync(pipeServer, token);
+                        }
+                    }
+                    finally
+                    {
+                        Interlocked.Decrement(ref _activeClients);
                     }
                 }, token);
             }
@@ -111,7 +136,7 @@ public sealed class NamedPipeServer : IDisposable
             {
                 var ps = new PipeSecurity();
                 var sidWorld = new SecurityIdentifier(WellKnownSidType.WorldSid, null);
-                ps.AddAccessRule(new PipeAccessRule(sidWorld, PipeAccessRights.ReadWrite, AccessControlType.Allow));
+                ps.AddAccessRule(new PipeAccessRule(sidWorld, PipeAccessRights.ReadWrite | PipeAccessRights.ReadPermissions, AccessControlType.Allow));
 
                 var current = WindowsIdentity.GetCurrent();
                 if (current.User != null)
@@ -150,10 +175,8 @@ public sealed class NamedPipeServer : IDisposable
 
     private async Task HandleClientAsync(NamedPipeServerStream pipe, CancellationToken token)
     {
-        // UTF-8 SIN BOM y sin AutoFlush: ver LockSuiteClient.IpcEncoding (evita un deadlock de BOM
-        // entre cliente y servidor, ya que el pipe no tiene buffer).
-        using var reader = new StreamReader(pipe, LockSuiteClient.IpcEncoding, detectEncodingFromByteOrderMarks: true, bufferSize: 4096, leaveOpen: true);
         using var writer = new StreamWriter(pipe, LockSuiteClient.IpcEncoding, bufferSize: 4096, leaveOpen: true);
+        var lineReader = new BoundedPipeLineReader(pipe, MaxRequestLineChars);
 
         try
         {
@@ -162,7 +185,7 @@ public sealed class NamedPipeServer : IDisposable
                 using var idle = CancellationTokenSource.CreateLinkedTokenSource(token);
                 idle.CancelAfter(ClientIdleTimeout);
 
-                string? line = await reader.ReadLineAsync(idle.Token);
+                string? line = await lineReader.ReadLineAsync(idle.Token);
                 if (line == null) break;
 
                 IpcRequest? request;
@@ -190,6 +213,19 @@ public sealed class NamedPipeServer : IDisposable
                 await writer.FlushAsync(idle.Token);
             }
         }
+        catch (InvalidOperationException ex)
+        {
+            // Petición demasiado grande: responder error controlado (con timeout corto) y cerrar.
+            try
+            {
+                using var errCts = CancellationTokenSource.CreateLinkedTokenSource(token);
+                errCts.CancelAfter(500);
+                string errJson = IpcResponse.Serialize(IpcResponse.Fail(ex.Message));
+                await writer.WriteLineAsync(errJson.AsMemory(), errCts.Token);
+                await writer.FlushAsync(errCts.Token);
+            }
+            catch { }
+        }
         catch (OperationCanceledException)
         {
             // Servicio deteniendose o cliente inactivo: cierre normal.
@@ -197,6 +233,72 @@ public sealed class NamedPipeServer : IDisposable
         catch (IOException)
         {
             // El cliente cerro la conexion a mitad de una operacion: normal.
+        }
+    }
+
+    private sealed class BoundedPipeLineReader
+    {
+        private readonly Stream _stream;
+        private readonly int _maxBytes;
+        private readonly byte[] _buf = new byte[4096];
+        private int _pos;
+        private int _len;
+        private bool _firstLine = true;
+
+        public BoundedPipeLineReader(Stream stream, int maxBytes)
+        {
+            _stream = stream;
+            _maxBytes = maxBytes;
+        }
+
+        public async Task<string?> ReadLineAsync(CancellationToken ct)
+        {
+            using var ms = new MemoryStream();
+            while (true)
+            {
+                if (_pos < _len)
+                {
+                    int nl = Array.IndexOf(_buf, (byte)'\n', _pos, _len - _pos);
+                    if (nl >= 0)
+                    {
+                        int chunkLen = nl - _pos;
+                        if (ms.Length + chunkLen > _maxBytes)
+                            throw new InvalidOperationException($"La petición IPC excede el límite máximo de {_maxBytes} bytes.");
+                        if (chunkLen > 0) ms.Write(_buf, _pos, chunkLen);
+                        _pos = nl + 1;
+                        return DecodeLine(ms.GetBuffer(), (int)ms.Length);
+                    }
+
+                    int rem = _len - _pos;
+                    if (ms.Length + rem > _maxBytes)
+                        throw new InvalidOperationException($"La petición IPC excede el límite máximo de {_maxBytes} bytes.");
+                    ms.Write(_buf, _pos, rem);
+                    _pos = 0;
+                    _len = 0;
+                }
+
+                int read = await _stream.ReadAsync(_buf.AsMemory(0, _buf.Length), ct);
+                if (read <= 0)
+                {
+                    return ms.Length > 0 ? DecodeLine(ms.GetBuffer(), (int)ms.Length) : null;
+                }
+                _pos = 0;
+                _len = read;
+            }
+        }
+
+        private string DecodeLine(byte[] raw, int count)
+        {
+            int start = 0;
+            if (_firstLine)
+            {
+                _firstLine = false;
+                if (count >= 3 && raw[0] == 0xEF && raw[1] == 0xBB && raw[2] == 0xBF)
+                    start = 3;
+            }
+            if (count > start && raw[count - 1] == (byte)'\r')
+                count--;
+            return LockSuiteClient.IpcEncoding.GetString(raw, start, count - start);
         }
     }
 
@@ -226,7 +328,12 @@ public sealed class NamedPipeServer : IDisposable
                         WhitelistPatternsCount = _configManager.ActivePatternCount,
                         AllowLocalNetwork = _configManager.AllowLocalNetwork,
                         CaptivePortalActive = _captivePortal?.IsActive ?? false,
-                        CaptivePortalRemainingSeconds = _captivePortal?.RemainingSeconds ?? 0
+                        CaptivePortalRemainingSeconds = _captivePortal?.RemainingSeconds ?? 0,
+                        IsSniProxyActive = _sniProxy?.IsListening ?? false,
+                        SniInspectionEnabled = _configManager.SniInspectionEnabled,
+                        SniAllowedConnections = _sniProxy?.AllowedConnections ?? 0,
+                        SniBlockedConnections = _sniProxy?.BlockedConnections ?? 0,
+                        IsNrptApplied = _dnsConfigurator?.IsNrptApplied ?? false
                     };
                     return IpcResponse.Ok(JsonSerializer.Serialize(status));
 
@@ -269,6 +376,13 @@ public sealed class NamedPipeServer : IDisposable
                         ? IpcResponse.Ok()
                         : IpcResponse.Fail("Ya existe una contraseña configurada o la contraseña es inválida");
 
+                case "Logout":
+                    if (!string.IsNullOrWhiteSpace(request.SessionToken))
+                    {
+                        _securityManager.RevokeSession(request.SessionToken);
+                    }
+                    return IpcResponse.Ok();
+
                 case "ChangePassword":
                     if (!RequireAuth(request)) return IpcResponse.Fail("No autorizado");
                     var changeDto = JsonSerializer.Deserialize<AuthRequestDto>(request.Payload ?? "{}");
@@ -290,10 +404,12 @@ public sealed class NamedPipeServer : IDisposable
                     if (!RequireAuth(request)) return IpcResponse.Fail("No autorizado");
                     if (string.IsNullOrWhiteSpace(request.Payload)) return IpcResponse.Fail("Configuración vacía");
                     var newConfig = WhitelistConfig.FromJson(request.Payload);
+                    newConfig.Packs ??= new();
                     foreach (var pack in newConfig.Packs)
                     {
-                        if (pack.BuiltIn) continue;
-                        foreach (var d in pack.Domains)
+                        if (pack is null) continue;
+                        if (pack.Id is not null && Presets.Find(pack.Id) is not null) continue;
+                        foreach (var d in pack.Domains ?? new System.Collections.Generic.List<string>())
                         {
                             if (!DomainMatcher.IsValidPattern(d))
                             {
@@ -318,8 +434,8 @@ public sealed class NamedPipeServer : IDisposable
                     {
                         return IpcResponse.Fail("Dominio inválido");
                     }
-                    bool added = _configManager.AddDomain(addDto.Domain, addDto.PackName);
-                    return added ? IpcResponse.Ok() : IpcResponse.Fail("No se pudo agregar el dominio");
+                    bool added = _configManager.AddDomain(addDto.Domain, addDto.PackName, out string? addErr);
+                    return added ? IpcResponse.Ok() : IpcResponse.Fail(addErr ?? "No se pudo agregar el dominio");
 
                 case "RemoveDomain":
                     if (!RequireAuth(request)) return IpcResponse.Fail("No autorizado");
@@ -330,8 +446,14 @@ public sealed class NamedPipeServer : IDisposable
 
                 case "TestWfp":
                     if (!RequireAuth(request)) return IpcResponse.Fail("No autorizado");
-                    _wfpManager.StartAutoRollback(TimeSpan.FromSeconds(30));
-                    return IpcResponse.Ok("WFP Test activado. Auto-rollback en 30 segundos.");
+                    return IpcResponse.Ok(_wfpManager.RunHealthCheck());
+
+                case "SetSniInspection":
+                    if (!RequireAuth(request)) return IpcResponse.Fail("No autorizado");
+                    if (!bool.TryParse(request.Payload, out bool sniEnabled))
+                        return IpcResponse.Fail("Valor invalido para inspección SNI");
+                    _configManager.SetSniInspectionEnabled(sniEnabled);
+                    return IpcResponse.Ok();
 
                 case "SetLearningMode":
                     if (!RequireAuth(request)) return IpcResponse.Fail("No autorizado");

@@ -5,11 +5,11 @@
 
 ## 1. Snapshot actual
 
-- **Versión vigente publicada:** `v0.5.3` (2026-11-04) — fuente única en `Program.Version` (`src/LockSuite.Service/Program.cs`) y `MyAppVersion` (`installer/LockSuiteSetup.iss`).
+- **Versión vigente publicada:** `v0.6.0` (2026-11-25) — fuente única en `Program.Version` (`src/LockSuite.Service/Program.cs`) y `MyAppVersion` (`installer/LockSuiteSetup.iss`).
 - **Repositorio GitHub oficial:** `https://github.com/Locksuite/Locksuite-Windows` (rama `main`, remoto `origin`).
 - **Identidad Git / GitHub CLI:** usuario `Locksuite` (`locksuite@users.noreply.github.com`), autenticado en `gh` con scopes `repo` y `workflow`.
-- **Release vigente en GitHub:** `v0.5.3` con `LockSuiteSetup-0.5.3.exe` y `SHA256SUMS.txt`.
-- **Suite de tests:** **441/441 verdes** (`376` en `LockSuite.Core.Tests` + `65` en `LockSuite.Service.Tests`).
+- **Release vigente en GitHub:** `v0.6.0` con `LockSuiteSetup-0.6.0.exe` y `SHA256SUMS.txt`.
+- **Suite de tests:** **546/546 verdes** (`432` en `LockSuite.Core.Tests` + `114` en `LockSuite.Service.Tests`).
 - **Entorno de desarrollo:** Windows 11 `win-x64`, .NET 8 SDK (`dotnet` o `%USERPROFILE%\.dotnet\dotnet.exe`), Inno Setup 6 (`ISCC.exe`), GitHub CLI (`gh`).
 - **Preferencias del usuario:** responder en español y de forma concisa. **No tocar ni referenciar la unidad `F:`.**
 
@@ -70,11 +70,11 @@ LockSuite Windows es un filtro de internet por **lista blanca estricta (default-
 | Ruta | Responsabilidad principal |
 |---|---|
 | `CONTEXTO_IA.md` | **Documento maestro actual.** Leer al inicio y actualizar al cierre de cada sesión. |
-| `src/LockSuite.Core/` | Lógica multiplataforma (.NET 8): `DomainMatcher.cs` (sintaxis + sufijos públicos), `WhitelistConfig.cs` (config v2 + `Blocks`/`Excluded`/`AllowLocalNetwork`), `Presets.cs` (13 paquetes + notas), `PresetSync.cs` (migración idempotente), `SniParser.cs` (parser TLS para Fase 2), `TrialConfig.cs`, `IpcMessages.cs`, `LockSuiteClient.cs`. |
-| `src/LockSuite.Service/` | Windows Service (`SYSTEM`): `Program.cs` (`Version`, CLI, DI), `Worker.cs` (ciclo vida + hooks), `Wfp/{WfpManager,IWfpManager,NativeMethods,WfpConstants}.cs`, `Dns/{DnsResolver,DnsPacket,DnsConfigurator}.cs`, `Ipc/NamedPipeServer.cs`, `Security/{SecurityManager,AclHelper}.cs`, `Config/ConfigManager.cs`, `Learning/LearningManager.cs`, `Trial/TrialManager.cs`, `CaptivePortal/CaptivePortalManager.cs`, `Updates/UpdateManager.cs`. |
-| `src/LockSuite.UI/` | Cliente WPF de escritorio: `MainWindow.xaml(.cs)`, `ViewModels/{MainViewModel,PackViewModel,ViewModelBase}.cs`, `Views/{AddDomainDialog,PasswordDialog,TrialEndedDialog}.xaml(.cs)`, `Converters/{AuthConverters,BlockedDomainNoteConverter}.cs`. |
-| `tests/` | `LockSuite.Core.Tests` (`376` tests) y `LockSuite.Service.Tests` (`65` tests). Incluyen verificación de layout binario x64/GUIDs WFP (`WfpManagerTests`) y round-trip IPC (`IpcRoundTripTests`). |
-| `installer/LockSuiteSetup.iss` | Instalador Inno Setup 6 (`x64compatible`): páginas de contraseña y modo de prueba, `icacls` en `%ProgramData%\LockSuite`, `SafeBoot\Network`, DoH `off` en Chrome/Edge/Firefox, extensión forzada *"Don't track me Google"*, tarea `RunAsInvoker`, `PrepareToInstall` para upgrades silenciosos, `UninstallRun` (`--stop`, `--uninstall`, `--reset-wfp`) y `UninstallDelete`. |
+| `src/LockSuite.Core/` | Lógica multiplataforma (.NET 8): `DomainMatcher.cs` (sintaxis, sufijos públicos e IPs literales), `WhitelistConfig.cs` (config v2 + `Blocks`/`Excluded`/`AllowLocalNetwork`/`SniInspectionEnabled`), `Presets.cs` (13 paquetes + notas; PKI acotada sin GitHub abierto), `PresetSync.cs` (migración idempotente), `SniParser.cs` (parser TLS + detección ECH/ESNI para Fase 2), `TrialConfig.cs`, `IpcMessages.cs`, `LockSuiteClient.cs` (con verificación de dueño SYSTEM/Admin del pipe). |
+| `src/LockSuite.Service/` | Windows Service (`SYSTEM`): `Program.cs` (`Version`, CLI, `depend= BFE`, DI), `Worker.cs` (ciclo vida + hooks), `Wfp/{WfpManager,IWfpManager,NativeMethods,WfpConstants}.cs` (doble sesión, `ALE_USER_ID`, `ALE_AUTH_RECV_ACCEPT`), `Dns/{DnsResolver,DnsPacket,DnsConfigurator}.cs` (UDP/TCP 53, IPv6/DHCP fallback, `SERVFAIL`, ECH strip), `Proxy/SniProxy.cs` (Fase 2 passthrough TLS SNI/HTTP en `127.0.0.1:443/80`), `Ipc/NamedPipeServer.cs`, `Security/{SecurityManager,AclHelper}.cs`, `Config/ConfigManager.cs`, `Learning/LearningManager.cs`, `Trial/TrialManager.cs`, `CaptivePortal/CaptivePortalManager.cs`, `Updates/UpdateManager.cs` (resolución privada de GitHub). |
+| `src/LockSuite.UI/` | Cliente WPF de escritorio (instancia única por Mutex + `TrayIconHelper` en bandeja): `MainWindow.xaml(.cs)`, `ViewModels/{MainViewModel,PackViewModel,ViewModelBase}.cs` (buscador, refresco incremental, sincronización de sesión), `Views/{AddDomainDialog,PasswordDialog,TrialEndedDialog}.xaml(.cs)`, `Converters/{AuthConverters,BlockedDomainNoteConverter}.cs`. |
+| `tests/` | `LockSuite.Core.Tests` (`432` tests) y `LockSuite.Service.Tests` (`114` tests). Incluyen verificación de layout binario x64/GUIDs WFP (`WfpManagerTests`), passthrough/anti-ECH/anti-SSRF (`SniProxyTests`), portal cautivo (`CaptivePortalManagerTests`) y round-trip/seguridad IPC (`IpcRoundTripTests`). |
+| `installer/LockSuiteSetup.iss` | Instalador Inno Setup 6 (`x64compatible`): páginas de contraseña (`SaveStringToUTF8File`) y modo de prueba, `icacls` en `%ProgramData%\LockSuite` y `{app}\service`, `SafeBoot\Network`, DoH `off` en Chrome/Edge/Firefox, extensión forzada *"Don't track me Google"* (valor `9051`), tarea `RunAsInvoker` vía PowerShell `-LiteralPath`, `PrepareToInstall` con espera real de parada de servicio, `UninstallRun` y `UninstallDelete`. |
 | `scripts/publish-release.ps1` | Script maestro de release local (tests, versionado, publish x64, ISCC, `SHA256SUMS.txt`, git push y `gh release create`). |
 | `.github/workflows/build-and-release.yml` | CI/CD en GitHub Actions para tags `v*` o `workflow_dispatch` (mantiene sincronizadas las versiones y genera `SHA256SUMS.txt`). |
 | `README.md` y `LockSuite.sln` | Guía general del repo y solución .NET. |
@@ -101,38 +101,36 @@ Contiene registros superados de las sesiones 1 a 16 ya integrados en el código 
 ## 5. Arquitectura e invariantes críticas (no romper)
 
 ### 5.1 Windows Filtering Platform (`WfpManager.cs`, `NativeMethods.cs`, `WfpConstants.cs`)
-- **Fail-closed y parada ordenada:** abre sesión WFP **no dinámica** (`flags = 0` cuando `FailClosed=true`) en capas `FWPM_LAYER_ALE_AUTH_CONNECT_V4/V6` bajo la subcapa propia `LockSuiteSubLayerGuid`. Si el proceso muere por crash, los filtros persisten bloqueando la red (el servicio tiene `sc failure` con auto-reinicio). Una parada ordenada (`Worker.StopAsync`) **siempre** ejecuta `RemoveNrptRedirect()` + `Rollback()`.
-- **Idempotencia:** las 15 claves de filtro fijas (`BaseFilterKeys`: 9 base dentro de la transacción + 6 permisos aditivos) se borran por clave antes de recrearse. Nunca acumulan duplicados.
-- **Filtros base en transacción:** Loopback V4/V6, DHCPv4 (`LOCAL_PORT=68` → `REMOTE_PORT=67`), DNS local (`127.0.0.1:53`), salida por `ALE_APP_ID` de `LockSuite.Service.exe` **restringida a puertos** `53` (UDP/TCP), `443` (TCP) y `80` (TCP) —impide tunelizar puertos arbitrarios usando el ejecutable del servicio—, y filtros de bloqueo total V4/V6.
-- **Permisos aditivos *best-effort* (fuera de transacción base):** NTP (`UDP 123`, `LOCAL_PORT=123`), DHCPv6 (`UDP 547`, `LOCAL_PORT=546`), y Red Local opcional (4 rangos privados IPv4 `10/8`, `172.16/12`, `192.168/16`, `169.254/16` con `FWP_V4_ADDR_MASK`, conmutable en vivo). Un fallo aquí nunca tira la subcapa a modo simulación.
-- **Reglas dinámicas por IP:** `AllowIpTemporary(ip, ttl)` con TTL mínimo de **180s** y barrido de expiración cada **5s**. Si falla `FwpmEngineOpen0` (sin elevación) pasa a `_isSimulationMode = true`.
-- **Invariantes P/Invoke x64 (testeadas en `WfpManagerTests`):** `FWP_VALUE0.uint64` es un puntero `UINT64*` (usar `CreateWeight` con `AllocHGlobal`), `FWPM_SUBLAYER0` mide **72 bytes**, `FWPM_FILTER0` mide **200 bytes**, y los GUIDs/enums (`FWP_MATCH_FLAGS_ALL_SET=6`, `FWP_BYTE_ARRAY16_TYPE=11`, `FWP_BYTE_BLOB_TYPE=12`, `FWP_V4_ADDR_MASK=0x100`) deben coincidir con el Windows SDK (`fwpmu.h`/`fwptypes.h`).
+- **Doble sesión WFP (fail-closed + autolimpieza):** sesión base **no dinámica** (`flags = 0` cuando `FailClosed=true`, con reintentos si BFE tarda en arrancar y dependencia `depend= BFE` en `sc`) para subcapa y filtros base; segunda sesión **siempre dinámica** (`flags = 1`) para las reglas temporales por IP (autolimpieza ante crash sin romper `--reset-wfp`). Parada ordenada (`Worker.StopAsync`) siempre ejecuta `CaptivePortalManager.Dispose()` + `RemoveNrptRedirect()` + `Rollback()`.
+- **Idempotencia:** las claves fijas (`BaseFilterKeys`, incluidas claves legacy) se borran por clave antes de recrearse dentro de la transacción.
+- **Endurecimiento anti-evasión (`ALE_USER_ID` + inbound default-deny):**
+  - Salida por `ALE_APP_ID` de `LockSuite.Service.exe` (puertos `53` UDP/TCP, `443` TCP, `80` TCP en V4 y V6) exige **`FWPM_CONDITION_ALE_USER_ID` = `SYSTEM`** (`S-1-5-18`) + ACL NTFS en `{app}\service` restringida a `SYSTEM`/`Administrators` (impide inyección/hollowing desde usuario estándar).
+  - DHCPv4 (`68→67`), DHCPv6 (`546→547`) y NTP (`123→123` V4/V6) exigen `ALE_USER_ID` de servicios de sistema (`SY`/`LS`/`NS`) para impedir túneles UDP desde puertos `<1024`.
+  - Capas entrantes `FWPM_LAYER_ALE_AUTH_RECV_ACCEPT_V4/V6`: default-deny entrante salvo loopback, DHCP de servicios y (si `AllowLocalNetwork=true`) los 4 rangos privados IPv4.
+- **Reglas dinámicas por IP:** `AllowIpTemporary(ip, ttl)` sincronizada con `_rulesLock`, TTL acotado `[180s, 1800s]`, tope `MaxDynamicRules = 4096` con evicción, y revocación inmediata (`RemoveAllDynamicRules`) al quitar dominios o desactivar paquetes.
 
-### 5.2 Resolutor DNS local y NRPT (`DnsResolver.cs`, `DnsConfigurator.cs`)
-- **Listener UDP `127.0.0.1:53`:** concurrencia acotada con `SemaphoreSlim(256, 256)`, `SIO_UDP_CONNRESET` desactivado (evita error 10054), backoff de 50ms en errores de socket, reintentos tolerantes al enlazar (3×). Si el puerto 53 está ocupado (Docker/WSL/VPN), queda `IsListening=false`, **no aplica NRPT** (no corta internet) y la UI muestra cartel ámbar (`IsDnsDown`).
-- **NRPT:** `DnsConfigurator` remueve/agrega la regla con comentario `LockSuiteDNS` en una sola invocación a PowerShell. Ante `ConfigManager.ConfigChanged`, ejecuta `ipconfig /flushdns` (`FlushDnsCache`) para limpiar NXDOMAIN cacheados.
-- **Anti-envenenamiento DNS:** `QueryUpstreamAsync` usa `1.1.1.1` / `8.8.8.8` con socket UDP conectado (`ConnectAsync`), valida coincidencia exacta de `TransactionId`, valida que las respuestas coincidan con el dominio consultado o su cadena **CNAME** legítima, y descarta IPs especiales/bogus (loopback, `0.0.0.0/8`, broadcast `255.255.255.255`, multicast).
+### 5.2 Resolutor DNS local, NRPT y Proxy SNI Fase 2 (`DnsResolver.cs`, `DnsConfigurator.cs`, `SniProxy.cs`)
+- **Listener exclusivo UDP+TCP `127.0.0.1:53`:** `ExclusiveAddressUse = true` (evita hijacking de puerto y detecta conflictos reales), concurrencia acotada (`SemaphoreSlim(256)`), `SIO_UDP_CONNRESET` desactivado y listener paralelo TCP/53 (RFC 1035). Si UDP no enlaza, queda `IsListening=false` y NO aplica NRPT (`IsDnsDown`).
+- **Upstreams resilientes y códigos correctos:** `1.1.1.1`/`8.8.8.8` + IPv6 (`2606:4700:4700::1111`/`2001:4860:4860::8888`) + fallback a los DNS originales del adaptador capturados antes de NRPT; reintento automático TCP/53 ante `TC=1`. Ante fallo de red devuelve **`SERVFAIL` (`RCODE=2`)** (no `NXDOMAIN`); ante queries malformadas devuelve `FORMERR`.
+- **Anti-envenenamiento, ECH y CNAME:** valida `TransactionId`, cadena CNAME multi-pasada (rechaza si algún CNAME cae en bloqueo fijo `IsHardBlocked`), bloquea registros `HTTPS`/`SVCB` (desactiva ECH/QUIC hints con `NODATA`) y descarta IPs privadas/bogus (anti-SSRF).
+- **Fase 2 — Proxy SNI transparente (`SniProxy.cs` en `127.0.0.1:443/80`):** sin descifrar TLS ni instalar CA propia. Cuando está activo (`SniInspectionEnabled=true`), `DnsResolver` devuelve `127.0.0.1` (`AAAA` → `NODATA`) para hosts web (excepto conectividad/NTP/email/STUN en `ShouldUseDirectIp`). `SniProxy` reensambla `ClientHello` multi-registro (incluidos post-cuánticos >1500B), rechaza ECH (`0xFE0D`/`0xFF0E`), valida `IsAllowed(sni)` / cabecera `Host:` única (rechaza `CONNECT`, doble `Host:` y fuerza `Connection: close`), resuelve upstream con protección anti-SSRF y hace passthrough TCP crudo.
 
 ### 5.3 IPC Named Pipe (`NamedPipeServer.cs` ↔ `LockSuiteClient.cs` ↔ `MainViewModel.cs`)
-- **Pipe `LockSuiteServicePipe`:** `IpcEncoding = new UTF8Encoding(false)` (**SIN BOM**) y `AutoFlush = false` con `FlushAsync()` explícito; timeout de lectura inactiva de 30s en servidor. *Nunca usar `Encoding.UTF8` por defecto* (emitir BOM sincrónicamente en pipes sin buffer provoca deadlock).
-- **`MainViewModel`:** refresco cada 3s protegido con `Interlocked.Exchange(ref _refreshing, 1)` y retorno inmediato si `GetStatusAsync()` devuelve `null`.
-- **Los 20 comandos IPC soportados:**
-  - Sin auth de tutor: `Ping`, `GetStatus`, `GetConfig`, `GetRecentBlocked`, `Authenticate`, `SetInitialPassword` (solo si aún no existe contraseña), `GetTrialStatus`, `DecideTrial` (conservar siempre permitido; quitar exige vencimiento y además tutor si `tutorlock` está activo).
-  - Requieren `SessionToken` válido de tutor (`RequireAuth`): `ChangePassword`, `ClearRecentBlocked`, `SaveConfig` (valida patrones en paquetes custom), `TogglePack`, `AddDomain`, `RemoveDomain`, `TestWfp`, `SetLearningMode`, `SetTrial`, `SetAllowLocalNetwork`, `StartCaptivePortal`, `EndCaptivePortal`.
+- **Pipe `LockSuiteServicePipe`:** `IpcEncoding = new UTF8Encoding(false)` (sin BOM), `BoundedPipeLineReader` con límite de **256 KB** por línea (cierra DoS OOM), máx. 32 clientes simultáneos y timeout inactivo de 30s. `LockSuiteClient` verifica en Windows que el propietario del pipe sea `NT AUTHORITY\SYSTEM` o `Administrators` antes de enviar credenciales (anti-pipe squatting).
+- **Los 22 comandos IPC soportados:**
+  - Sin auth de tutor: `Ping`, `GetStatus`, `GetConfig`, `GetRecentBlocked`, `Authenticate`, `SetInitialPassword`, `Logout`, `GetTrialStatus`, `DecideTrial`.
+  - Requieren `SessionToken` válido (`RequireAuth`): `ChangePassword`, `ClearRecentBlocked`, `SaveConfig` (valida patrones en todo paquete fuera del catálogo, aunque finja `BuiltIn=true`), `TogglePack`, `AddDomain`, `RemoveDomain`, `TestWfp` (diagnóstico no destructivo `RunHealthCheck`), `SetLearningMode`, `SetTrial`, `SetAllowLocalNetwork`, `SetSniInspection`, `StartCaptivePortal`, `EndCaptivePortal`.
 
 ### 5.4 Seguridad, permisos y endurecimiento de evasión
-- **Contraseña (`SecurityManager.cs`):** PBKDF2-SHA256 (100.000 iteraciones, sal 16B) cifrado con DPAPI (`DataProtectionScope.LocalMachine`) en `%ProgramData%\LockSuite\config\auth.dat`. Lockout progresivo: 5 fallos → 60s, 10 fallos → 5 min; al expirar reinicia el contador. Sesiones de 15 min renovables.
-- **ACL NTFS (`AclHelper.cs` y `.iss`):** `%ProgramData%\LockSuite` y subcarpetas (`config`, `logs`, `updates`) tienen herencia removida (`/inheritance:r`) y acceso exclusivo a `SYSTEM` (`*S-1-5-18`) y `Administrators` (`*S-1-5-32-544`).
-- **Anti-inyección:** `<RuntimeHostConfigurationOption Include="System.StartupHookProvider.IsSupported" Value="false" />` en `LockSuite.Service.csproj` bloquea `DOTNET_STARTUP_HOOKS`.
-- **Safe Boot:** entrada `HKLM\SYSTEM\CurrentControlSet\Control\SafeBoot\Network\LockSuiteService` para que el filtro arranque también en Modo Seguro con red.
-- **Navegadores (directivas en `.iss`):**
-  - **DoH desactivado** en Chrome, Edge y Firefox (`DnsOverHttpsMode="off"`, Firefox `Enabled=0`/`Locked=1`) para no bypassear el DNS local.
-  - **Enlace `google.com/url?q=...`:** Chrome, Edge y Firefox instalan forzosamente la extensión *"Don't track me Google"* (endpoints `clients2.google.com`, `clients2.googleusercontent.com`, `addons.mozilla.org`, `addons.cdn.mozilla.net` habilitados en `browser-updates`) para desenvolver redirecciones de Gmail/Chat hacia Drive sin abrir `www.google.com`.
+- **Contraseña (`SecurityManager.cs`):** mínimo 6 caracteres, PBKDF2-SHA256 (100.000 iteraciones, sal 16B) cifrado con DPAPI (`LocalMachine`) en `auth.dat`. Lockout progresivo real (sin resetear contador al vencer lockout): 5 fallos → 60s, 10 → 5 min, 15 → 15 min. Tokens CSPRNG de 256 bits renovables por 15 min.
+- **ACL NTFS (`AclHelper.cs` y `.iss`):** `%ProgramData%\LockSuite` y `{app}\service` tienen herencia removida (`/inheritance:r`) y acceso exclusivo a `SYSTEM` y `Administrators`.
+- **Auto-update (`UpdateManager.cs`):** consulta y descarga GitHub usando `SocketsHttpHandler.ConnectCallback` privado (restringido a `api.github.com`, `github.com`, `*.githubusercontent.com` resueltos vía `DnsResolver`), verifica `SHA256SUMS.txt` (borra el `.exe` si falla), sanitiza nombre y lanza con `UseShellExecute = false`.
+- **Safe Boot y Navegadores:** `SafeBoot\Network\LockSuiteService`, DoH `off` en Chrome/Edge/Firefox, extensión *"Don't track me Google"* con valor `9051` (sin colisionar con `"1"`), `RunAsInvoker` con PowerShell `-LiteralPath`.
 
 ### 5.5 Motor de dominios, Presets y Modo de prueba / Portal cautivo
-- **Sintaxis (`DomainMatcher.cs`):** `x.com` (sitio + subdominios), `*.x.com` (solo subdominios), `=x.com` (solo host exacto), `lh*.x.com` / `*-docs.x.com` (comodín en una única etiqueta). `IsValidPattern` bloquea TLDs sueltos y lista >60 sufijos públicos multi-parte (`co.il`, `com.ar`, `co.uk`, etc.). Evaluación: `MatchesAny(whitelist) && !MatchesAny(blocklist)`.
-- **Catálogo de fábrica (`Presets.cs`, 13 IDs) y `PresetSync.cs`:** `system` (incluye PKI OCSP/CRL/AIA de CAs principales + `lencr.org`/`amazontrust.com`/`pki.goog`/`ctldl.windowsupdate.com` + `github.com`/`githubusercontent.com`), `kosher-block` (`Blocks=true`), `gmail`, `google-chat`, `google-drive`, `google-photos`, `prog`, `mitmachim`, `mercadopago`, `windows-update`, `web-commons`, `captcha` (`challenges.cloudflare.com`, `hcaptcha.com`, `recaptcha.net`), `browser-updates`. `PresetSync` migra configs v1→v2, respeta `excluded` (lo quitado por el tutor no vuelve) y conserva extras en `"Personalizados"`.
-- **Modo de prueba (`TrialManager.cs`) y Portal cautivo (`CaptivePortalManager.cs`):** trial en `trial.json` (`Prompt` fail-closed por defecto, `AutoRemove`, `TutorLock`); portal cautivo por ventana de 1–15 min (default 5 min) abre solo IPs privadas de gateway/DNS de la red actual y suspende NRPT temporalmente sin apagar WFP.
+- **Sintaxis (`DomainMatcher.cs`):** rechaza TLDs sueltos, >75 sufijos públicos multi-parte (incluso tras comodín como `a*.co.il`) e IPs literales puras.
+- **Catálogo (`Presets.cs`, 13 IDs) y `PresetSync.cs`:** `system` ya **no** abre `github.com`/`githubusercontent.com` ni raíces completas de CAs (acotado a subdominios PKI reales; dominios retirados figuran en `LegacyDomains` para migración limpia). `AddDomain` nunca restituye en paquetes de bloqueo.
+- **Modo de prueba y Portal cautivo:** `TrialManager` acota `durationMinutes` (`[1, 525600]`) y usa `UseShellExecute = false`; `CaptivePortalManager` aborta sin tocar NRPT si no hay direcciones locales, revoca sus reglas WFP al terminar (`End`/`Dispose`) y limpia caché DNS.
 
 ### 5.6 Rutas en equipo cliente y CLI del servicio (`Program.cs`)
 - **Instalación:** `C:\Program Files\LockSuite\{service,ui}` | **Datos protegidos:** `%ProgramData%\LockSuite\{config,logs,updates}`.
@@ -147,10 +145,10 @@ Contiene registros superados de las sesiones 1 a 16 ya integrados en el código 
 & "$env:USERPROFILE\.dotnet\dotnet.exe" test LockSuite.sln -c Release
 
 # Publicar nueva versión (compila, testea, empaqueta, genera SHA256SUMS, commitea, pushea y crea Release)
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts\publish-release.ps1 -Version "0.5.4" -Notes "Descripcion"
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\publish-release.ps1 -Version "0.6.1" -Notes "Descripcion"
 
 # Verificar release publicado en GitHub
-gh release view v0.5.3 --repo Locksuite/Locksuite-Windows
+gh release view v0.6.0 --repo Locksuite/Locksuite-Windows
 
 # Diagnóstico / rescate en VM (como Administrador)
 sc.exe query LockSuiteService
@@ -163,12 +161,11 @@ Get-DnsClientNrptRule | Where-Object { $_.Comment -eq 'LockSuiteDNS' }
 
 ## 7. Riesgos residuales conocidos y backlog
 
-1. **Fase 2 — Inspección de SNI en WFP (prioridad técnica alta):** varios sitios/servicios detrás de la misma IP (Google, Cloudflare) hoy comparten IP temporal una vez autorizada. `SniParser.cs` ya está implementado y testeado en Core; falta integrarlo a nivel de flujo/callout o capa compatible en el servicio para validar el SNI TLS en texto plano.
-2. **Aislar GitHub del paquete `system`:** actualmente `github.com` y `githubusercontent.com` están en `system` para el auto-update, lo que los deja visibles en navegador. Mejora pendiente: que `UpdateManager` resuelva GitHub por su cuenta aprovechando las reglas por `ALE_APP_ID` del servicio y quitar GitHub de la lista blanca general.
-3. **Firma de código Authenticode:** `UpdateManager` verifica `SHA256SUMS.txt`, lo cual protege contra corrupción o MITM, pero no contra un compromiso de la cuenta de GitHub. Pendiente verificar firma Authenticode (`WinVerifyTrust`) cuando se cuente con certificado.
-4. **Hardening adicional WFP/DNS:** mover las reglas dinámicas por IP a una segunda sesión WFP dinámica (autolimpieza ante crash) y agregar soporte TCP/53 al DNS local para respuestas truncadas (`TC=1`).
-5. **Validación pendiente en VM y pulido UI:** verificar en Google Docs *"Insertar imagen → Buscar en la web"*, probar portal cautivo real, añadir buscador en Lista Blanca y refresco incremental de "Bloqueados recientes".
-6. **Límites documentados inherentes:** portal cautivo alojado en IP pública; reloj CMOS muy desfasado (W32Time rechaza corregir); reCAPTCHA servido desde `www.google.com/recaptcha` (`www.google.com` sigue en `kosher-block`).
+1. **Firma de código Authenticode:** `UpdateManager` verifica `SHA256SUMS.txt` y restringe descargas a GitHub, pero falta verificar firma Authenticode (`WinVerifyTrust`) cuando se cuente con certificado de firma.
+2. **Tráfico SNI fuera de 443/80 y Apps nativas con `AllowLocalNetwork=true`:** protocolos no-HTTP/TLS o tráfico local hacia otro dispositivo con proxy (ej. hotspot del celular) siguen sujetos al alcance inherente de red local si el tutor activa `AllowLocalNetwork`.
+3. **Empaquetado offline de la extensión *"Don't track me Google"*:** reduciría la dependencia de `clients2.google.com` / `addons.mozilla.org` en `browser-updates`.
+4. **Validación en VM real:** probar el instalador `v0.6.0` (UTF-8, `SniProxy` en `127.0.0.1:443/80`, `ALE_USER_ID`, portal cautivo real, Google Docs *"Insertar imagen → Buscar en la web"*) y verificar actualización automática desde `v0.5.3` → `v0.6.0`.
+5. **Límites documentados inherentes:** portal cautivo alojado en IP pública; reloj CMOS muy desfasado (W32Time rechaza corregir); reCAPTCHA servido desde `www.google.com/recaptcha` (`www.google.com` sigue en `kosher-block`).
 
 ---
 
@@ -186,10 +183,11 @@ Get-DnsClientNrptRule | Where-Object { $_.Comment -eq 'LockSuiteDNS' }
 | `v0.5.2` (2026-11-03) | Fix de structs WFP x64 (`72B`/`200B`) y GUIDs/constantes del Windows SDK, puertos estrictos en AppID del servicio, anti-envenenamiento DNS y `SafeBoot\Network` (441 tests). |
 | `v0.5.3` (2026-11-04) | Migración completa de GitHub y auto-actualizador al repositorio oficial `Locksuite/Locksuite-Windows` + publicación v0.5.3 (441/441 tests). |
 | Docs (2026-11-24) | Consolidación de contexto en `CONTEXTO_IA.md` y archivo de documentación histórica en `docs/historial/` (441/441 tests). |
+| `v0.6.0` (2026-11-25) | Auditoría integral y cierre de bugs/evasiones: `SniProxy` Fase 2 transparente (`443`/`80`, anti-ECH/SSRF/Host-smuggling), doble sesión WFP + `ALE_USER_ID` + `ALE_AUTH_RECV_ACCEPT` + `depend= BFE`, GitHub aislado en `UpdateManager`, DNS `ExclusiveAddressUse` + TCP/53 + IPv6/DHCP fallback + `SERVFAIL`, IPC anti-squatting + límite 256 KB, lockout progresivo real, UI con bandeja/instancia única/buscador/sesión sincronizada, e instalador UTF-8 + ACL `{app}\service` (546/546 tests). |
 
 ---
 
 ## 9. Próximo paso
 
-1. Verificar en los equipos cliente que tengan instalado `v0.5.3` (enlazado a `Locksuite/Locksuite-Windows`) que las auto-actualizaciones y el filtrado kernel WFP funcionan en producción y probar las validaciones pendientes en VM de la Sección 7.5.
-2. Evaluar e implementar la **Fase 2 (inspección SNI)** usando `SniParser.cs` para cerrar el hueco de IPs compartidas (Google / Cloudflare), y evaluar aislar GitHub del paquete `system`.
+1. Probar `v0.6.0` (y el upgrade automático desde `v0.5.3`) en una VM Windows 11 aislada verificando `SniProxy`, WFP con `ALE_USER_ID`, portal cautivo real y Google Docs.
+2. Evaluar firma Authenticode para el instalador y empaquetado local de la extensión del navegador.

@@ -75,10 +75,11 @@ public class PresetsTests
         // Buscador de Google
         "google.com", "www.google.com", "www.google.com.ar", "google.com.ar", "www.google.co.il", "google.co.il",
         "ipv4.google.com", "encrypted.google.com", "images.google.com", "lens.google.com", "news.google.com",
-        "books.google.com", "encrypted-tbn0.gstatic.com", "t0.gstatic.com",
+        "books.google.com", "cse.google.com", "search.google.com", "m.google.com", "scholar.google.com",
+        "videos.google.com", "shopping.google.com", "translate.google.com", "encrypted-tbn0.gstatic.com", "t0.gstatic.com",
         // Gemini y otras IA
         "gemini.google.com", "bard.google.com", "gemini.google", "aistudio.google.com", "notebooklm.google.com",
-        "labs.google", "assistant.google.com", "generativelanguage.googleapis.com", "aiplatform.googleapis.com",
+        "labs.google", "assistant.google.com", "jules.google.com", "opal.withgoogle.com", "generativelanguage.googleapis.com", "aiplatform.googleapis.com",
         "us-central1-aiplatform.googleapis.com", "appsgenaiserver-pa.clients6.google.com",
         "alkalimakersuite-pa.clients6.google.com", "robinfrontend-pa.googleapis.com", "gemini.gstatic.com",
         // YouTube y video
@@ -93,8 +94,10 @@ public class PresetsTests
         // GIFs, redes, publicidad
         "media.tenor.com", "tenor.googleapis.com", "facebook.com", "connect.facebook.net",
         "www.googletagmanager.com", "www.google-analytics.com", "stats.g.doubleclick.net",
-        // Hosting generico
-        "github.io", "imgur.com", "i.imgur.com",
+        // Hosting generico y sitios publicos de CAs / GitHub
+        "github.com", "api.github.com", "githubusercontent.com", "github.io",
+        "community.letsencrypt.org", "www.digicert.com",
+        "imgur.com", "i.imgur.com",
     }.Select(h => new object[] { h });
 
     [Theory]
@@ -273,6 +276,9 @@ public class PresetsTests
     [InlineData("play.google.com", true)]
     [InlineData("www.youtube.com", true)]
     [InlineData("encrypted-tbn1.gstatic.com", true)]
+    [InlineData("github.com", true)]
+    [InlineData("api.github.com", true)]
+    [InlineData("objects.githubusercontent.com", true)]
     [InlineData("mail.google.com", false)]
     [InlineData("algun-sitio-desconocido.com", false)]
     public void ExplainBlocked_HasNotesForKnownHosts(string host, bool hasNote)

@@ -65,6 +65,20 @@ public class PresetSyncTests
         Assert.False(cfg.IsAllowed("google.com"));
         Assert.False(cfg.IsAllowed("www.google.com.ar"));
         Assert.False(cfg.IsAllowed("gemini.google.com"));
+
+        // Dominios retirados de "Esenciales del sistema" no quedan permitidos ni pasan a "Personalizados".
+        Assert.False(cfg.IsAllowed("github.com"));
+        Assert.False(cfg.IsAllowed("api.github.com"));
+        Assert.False(cfg.IsAllowed("githubusercontent.com"));
+        Assert.False(cfg.IsAllowed("community.letsencrypt.org"));
+        Assert.False(cfg.IsAllowed("www.digicert.com"));
+        var custom = cfg.Packs.Single(p => p.Name == Presets.CustomPackName);
+        Assert.DoesNotContain("github.com", custom.Domains);
+        Assert.DoesNotContain("api.github.com", custom.Domains);
+        Assert.DoesNotContain("githubusercontent.com", custom.Domains);
+        Assert.DoesNotContain("letsencrypt.org", custom.Domains);
+        Assert.DoesNotContain("digicert.com", custom.Domains);
+
         Assert.Equal(WhitelistConfig.CurrentVersion, cfg.Version);
     }
 

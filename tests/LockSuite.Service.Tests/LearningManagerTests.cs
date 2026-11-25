@@ -63,4 +63,30 @@ public class LearningManagerTests : IDisposable
         using var reload = new LearningManager(NullLogger<LearningManager>.Instance, _tempLogFile);
         Assert.Contains(reload.GetRecent(), e => e.Domain == "persistido.com");
     }
+
+    [Fact]
+    public void RecordBlocked_EvictsLeastRecentlyUsed_WhenCapacityExceeded()
+    {
+        using var manager = new LearningManager(NullLogger<LearningManager>.Instance, _tempLogFile);
+
+        manager.RecordBlocked("primero.com");
+        for (int i = 1; i <= 198; i++)
+        {
+            manager.RecordBlocked($"dom{i:D3}.com");
+        }
+
+        // Repetir el primero antes de superar los 200 para promoverlo a la cabeza (MRU)
+        manager.RecordBlocked("primero.com");
+
+        // Registrar 6 más (205 dominios distintos en total -> 5 evicciones)
+        for (int i = 199; i <= 204; i++)
+        {
+            manager.RecordBlocked($"dom{i:D3}.com");
+        }
+
+        var recent = manager.GetRecent(200);
+        Assert.Equal(200, recent.Count);
+        Assert.Contains(recent, e => e.Domain == "primero.com" && e.Count == 2);
+        Assert.DoesNotContain(recent, e => e.Domain == "dom001.com");
+    }
 }

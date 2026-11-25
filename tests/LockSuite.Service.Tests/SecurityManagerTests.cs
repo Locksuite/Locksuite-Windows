@@ -103,4 +103,101 @@ public class SecurityManagerTests : IDisposable
         Assert.Equal(AuthResult.Success, newAuth);
         Assert.NotNull(token);
     }
+
+    [Fact]
+    public void SetInitialPassword_RejectsBelowMinLengthOrWhitespace()
+    {
+        var manager = new SecurityManager(NullLogger<SecurityManager>.Instance, _tempAuthFile);
+
+        Assert.False(manager.SetInitialPassword("12345"));
+        Assert.False(manager.SetInitialPassword("abc"));
+        Assert.False(manager.SetInitialPassword("      "));
+        Assert.False(manager.IsPasswordSet());
+
+        Assert.True(manager.SetInitialPassword("123456"));
+        Assert.True(manager.IsPasswordSet());
+    }
+
+    [Fact]
+    public void ChangePassword_RejectsBelowMinLength()
+    {
+        var manager = new SecurityManager(NullLogger<SecurityManager>.Instance, _tempAuthFile);
+        Assert.True(manager.SetInitialPassword("ClaveInicial1"));
+
+        Assert.False(manager.ChangePassword("ClaveInicial1", "12345"));
+        Assert.False(manager.ChangePassword("ClaveInicial1", "     "));
+
+        // La clave original sigue vigente
+        Assert.Equal(AuthResult.Success, manager.Authenticate("ClaveInicial1", out _));
+    }
+
+    [Fact]
+    public void RevokeSession_InvalidatesSessionToken()
+    {
+        var manager = new SecurityManager(NullLogger<SecurityManager>.Instance, _tempAuthFile);
+        manager.SetInitialPassword("ClaveSegura123");
+
+        Assert.Equal(AuthResult.Success, manager.Authenticate("ClaveSegura123", out string? token));
+        Assert.NotNull(token);
+        Assert.True(manager.ValidateSession(token));
+
+        manager.RevokeSession(token!);
+        Assert.False(manager.ValidateSession(token));
+    }
+
+    [Fact]
+    public void Authenticate_ProgressiveLockoutEscalation_WithSimulatedClock()
+    {
+        var now = new DateTimeOffset(2026, 6, 1, 12, 0, 0, TimeSpan.Zero);
+        var manager = new SecurityManager(NullLogger<SecurityManager>.Instance, _tempAuthFile, () => now);
+        manager.SetInitialPassword("Correcto123");
+
+        // 5 fallos -> bloqueo de 60 segundos
+        for (int i = 0; i < 5; i++)
+        {
+            Assert.Equal(AuthResult.InvalidPassword, manager.Authenticate("Incorrecto", out _));
+        }
+        Assert.Equal(AuthResult.LockedOut, manager.Authenticate("Correcto123", out _));
+
+        // A los 59s sigue bloqueado; a los +61s expira el bloqueo (sin reiniciar el contador)
+        now = now.AddSeconds(59);
+        Assert.Equal(AuthResult.LockedOut, manager.Authenticate("Correcto123", out _));
+        now = now.AddSeconds(2);
+
+        // 5 fallos más (intentos 6..10, avanzando +61s tras cada bloqueo de 60s) -> bloqueo de 5 minutos
+        for (int i = 0; i < 5; i++)
+        {
+            Assert.Equal(AuthResult.InvalidPassword, manager.Authenticate("Incorrecto", out _));
+            if (i < 4)
+            {
+                now = now.AddSeconds(61);
+            }
+        }
+
+        // Tras +61s debe SEGUIR bloqueado (demuestra escalada a 5 minutos)
+        now = now.AddSeconds(61);
+        Assert.Equal(AuthResult.LockedOut, manager.Authenticate("Correcto123", out _));
+
+        // Tras completar >5 min se desbloquea y el login correcto reinicia el contador
+        now = now.AddMinutes(4);
+        Assert.Equal(AuthResult.Success, manager.Authenticate("Correcto123", out string? token));
+        Assert.NotNull(token);
+        Assert.Equal(AuthResult.InvalidPassword, manager.Authenticate("Incorrecto", out _));
+        Assert.Equal(AuthResult.Success, manager.Authenticate("Correcto123", out _));
+    }
+
+    [Fact]
+    public void ChangePassword_WrongOldPassword_CountsTowardsLockout()
+    {
+        var now = new DateTimeOffset(2026, 6, 1, 12, 0, 0, TimeSpan.Zero);
+        var manager = new SecurityManager(NullLogger<SecurityManager>.Instance, _tempAuthFile, () => now);
+        manager.SetInitialPassword("Correcto123");
+
+        for (int i = 0; i < 5; i++)
+        {
+            Assert.False(manager.ChangePassword("Erronea", "NuevaValida123"));
+        }
+
+        Assert.Equal(AuthResult.LockedOut, manager.Authenticate("Correcto123", out _));
+    }
 }

@@ -107,6 +107,11 @@ public class PresetsExtraTests
     [InlineData("t0.gstatic.com")]
     [InlineData("www.googletagmanager.com")]
     [InlineData("bing.com")]
+    [InlineData("github.com")]
+    [InlineData("api.github.com")]
+    [InlineData("githubusercontent.com")]
+    [InlineData("community.letsencrypt.org")]
+    [InlineData("www.digicert.com")]
     public void NewPacks_DoNotOpenBlockedSites(string host)
         => Assert.False(AllEnabled().IsAllowed(host), host);
 

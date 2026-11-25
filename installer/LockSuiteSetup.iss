@@ -7,7 +7,7 @@
 ; Luego compilar este script con ISCC.
 
 #define MyAppName "LockSuite Windows"
-#define MyAppVersion "0.5.3"
+#define MyAppVersion "0.6.0"
 #define MyAppPublisher "LockSuite Community"
 #define MyAppURL "https://github.com/Locksuite/Locksuite-Windows"
 #define MyAppExeName "LockSuite.UI.exe"
@@ -62,7 +62,7 @@ Name: "{commonappdata}\LockSuite\updates"; Permissions: system-full admins-full
 ; (hace lo contrario: fuerza ejecucion SIN elevacion). Se crea solo si el tutor marca la tarea.
 Root: HKCR; Subkey: "exefile\shell\LockSuiteAsInvoker"; ValueType: string; ValueName: ""; ValueData: "Instalar en mi usuario (sin administrador)"; Flags: uninsdeletekey; Tasks: ctxinstalluser
 Root: HKCR; Subkey: "exefile\shell\LockSuiteAsInvoker"; ValueType: string; ValueName: "Icon"; ValueData: "{app}\ui\{#MyAppExeName}"; Tasks: ctxinstalluser
-Root: HKCR; Subkey: "exefile\shell\LockSuiteAsInvoker\command"; ValueType: string; ValueName: ""; ValueData: "cmd /c ""set __COMPAT_LAYER=RUNASINVOKER&& start """" ""%1"""""; Tasks: ctxinstalluser
+Root: HKCR; Subkey: "exefile\shell\LockSuiteAsInvoker\command"; ValueType: string; ValueName: ""; ValueData: "powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -Command ""$env:__COMPAT_LAYER='RUNASINVOKER'; Start-Process -LiteralPath ([Environment]::GetCommandLineArgs()[-1])"" ""%1"""; Tasks: ctxinstalluser
 
 ; --- Proteccion de Modo Seguro con funciones de red (Safe Mode with Networking) ---
 ; Registra LockSuiteService para que Windows Service Control Manager lo inicie tambien en Modo Seguro.
@@ -84,10 +84,10 @@ Root: HKLM; Subkey: "SOFTWARE\Policies\Mozilla\Firefox\DNSOverHTTPS"; ValueType:
 ; Esta directiva instala de forma silenciosa la extension de codigo abierto "Don't track me Google"
 ; (de Rob Wu, equipo Chromium/Mozilla) en Chrome, Edge y Firefox, la cual desenvuelve los enlaces al instante
 ; permitiendo abrir directamente el destino (ej. Google Drive) sin pasar por el buscador de Google.
-Root: HKLM; Subkey: "SOFTWARE\Policies\Google\Chrome\ExtensionInstallForcelist"; ValueType: string; ValueName: "1"; ValueData: "gdbofhhdmcladcmmfjolgndfkpobecpg;https://clients2.google.com/service/update2/crx"; Flags: uninsdeletevalue
+Root: HKLM; Subkey: "SOFTWARE\Policies\Google\Chrome\ExtensionInstallForcelist"; ValueType: string; ValueName: "9051"; ValueData: "gdbofhhdmcladcmmfjolgndfkpobecpg;https://clients2.google.com/service/update2/crx"; Flags: uninsdeletevalue
 Root: HKLM; Subkey: "SOFTWARE\Policies\Microsoft\Edge"; ValueType: dword; ValueName: "ControlDefaultStateOfAllowExtensionFromOtherStoresSettingEnabled"; ValueData: "1"; Flags: uninsdeletevalue
-Root: HKLM; Subkey: "SOFTWARE\Policies\Microsoft\Edge\ExtensionInstallForcelist"; ValueType: string; ValueName: "1"; ValueData: "gdbofhhdmcladcmmfjolgndfkpobecpg;https://clients2.google.com/service/update2/crx"; Flags: uninsdeletevalue
-Root: HKLM; Subkey: "SOFTWARE\Policies\Mozilla\Firefox\Extensions\Install"; ValueType: string; ValueName: "1"; ValueData: "https://addons.mozilla.org/firefox/downloads/latest/dont-track-me-google1/latest.xpi"; Flags: uninsdeletevalue
+Root: HKLM; Subkey: "SOFTWARE\Policies\Microsoft\Edge\ExtensionInstallForcelist"; ValueType: string; ValueName: "9051"; ValueData: "gdbofhhdmcladcmmfjolgndfkpobecpg;https://clients2.google.com/service/update2/crx"; Flags: uninsdeletevalue
+Root: HKLM; Subkey: "SOFTWARE\Policies\Mozilla\Firefox\Extensions\Install"; ValueType: string; ValueName: "9051"; ValueData: "https://addons.mozilla.org/firefox/downloads/latest/dont-track-me-google1/latest.xpi"; Flags: uninsdeletevalue
 
 [Icons]
 Name: "{autoprograms}\LockSuite"; Filename: "{app}\ui\{#MyAppExeName}"
@@ -198,15 +198,16 @@ begin
   begin
     svc := ExpandConstant('{app}\service\{#MyServiceExeName}');
 
-    { 0) Asegurar permisos NTFS de ProgramData\LockSuite: quitar herencia y dar acceso solo a SYSTEM y Administradores }
+    { 0) Asegurar permisos NTFS de ProgramData\LockSuite y carpeta de servicio: quitar herencia y dar acceso solo a SYSTEM y Administradores }
     Exec('icacls.exe', '"' + ExpandConstant('{commonappdata}\LockSuite') + '" /inheritance:r /grant:r "*S-1-5-18:(OI)(CI)F" "*S-1-5-32-544:(OI)(CI)F" /T', '', SW_HIDE, ewWaitUntilTerminated, rc);
+    Exec('icacls.exe', '"' + ExpandConstant('{app}\service') + '" /inheritance:r /grant:r "*S-1-5-18:(OI)(CI)F" "*S-1-5-32-544:(OI)(CI)F" /T', '', SW_HIDE, ewWaitUntilTerminated, rc);
 
     { 1) Fijar la contrasena maestra del tutor. Solo si se ingreso (en modo silencioso,
          p. ej. una auto-actualizacion, no hay pagina y Values[0] queda vacio: no se toca). }
     if PwPage.Values[0] <> '' then
     begin
       tmp := ExpandConstant('{tmp}\lsinit.txt');
-      if SaveStringToFile(tmp, PwPage.Values[0], False) then
+      if SaveStringToFile(tmp, Utf8Encode(PwPage.Values[0]), False) then
       begin
         Exec(svc, '--set-password-file "' + tmp + '"', '', SW_HIDE, ewWaitUntilTerminated, rc);
         DeleteFile(tmp);
@@ -234,6 +235,24 @@ begin
   end;
 end;
 
+function WaitServiceStopped(MaxIterations: Integer): Boolean;
+var
+  i, rc: Integer;
+begin
+  Result := False;
+  for i := 1 to MaxIterations do
+  begin
+    if Exec('powershell.exe',
+      '-NoProfile -WindowStyle Hidden -Command "$s = Get-Service -Name ''LockSuiteService'' -ErrorAction SilentlyContinue; if ($null -eq $s -or $s.Status -eq ''Stopped'') { exit 0 } else { exit 1 }"',
+      '', SW_HIDE, ewWaitUntilTerminated, rc) and (rc = 0) then
+    begin
+      Result := True;
+      Exit;
+    end;
+    Sleep(500);
+  end;
+end;
+
 { En una actualizacion, detener el servicio y cerrar la GUI ANTES de copiar archivos,
   para poder sobrescribir los binarios que estan en uso. En una instalacion limpia,
   estos comandos simplemente no encuentran nada que detener (inofensivo). }
@@ -244,7 +263,11 @@ begin
   Result := '';
   NeedsRestart := False;
   Exec('sc.exe', 'stop LockSuiteService', '', SW_HIDE, ewWaitUntilTerminated, rc);
-  Sleep(2000);
+  if not WaitServiceStopped(30) then
+  begin
+    Exec('taskkill.exe', '/F /IM LockSuite.Service.exe', '', SW_HIDE, ewWaitUntilTerminated, rc);
+    Sleep(500);
+  end;
   Exec('taskkill.exe', '/F /IM LockSuite.UI.exe', '', SW_HIDE, ewWaitUntilTerminated, rc);
   Sleep(500);
 end;

@@ -80,10 +80,18 @@ public class DomainMatcherTests
     [InlineData("lh*-.google.com", false)]                 // etiqueta termina con '-'
     // Sufijos publicos / TLDs compuestos sueltos
     [InlineData("co.il", false)]
+    [InlineData("edu.il", false)]
     [InlineData("com.ar", false)]
+    [InlineData("com.ve", false)]
+    [InlineData("co.kr", false)]
     [InlineData("co.uk", false)]
     [InlineData("*.co.il", false)]
     [InlineData("=co.il", false)]
+    [InlineData("a*.co.il", false)]                      // comodin sobre public suffix compuesto
+    [InlineData("lh*.com.ar", false)]                    // idem
+    [InlineData("1.2.3.4", false)]                       // IP literal pura
+    [InlineData("192.168.1.1", false)]                   // IP literal pura
+    [InlineData("ejemplo.123", false)]                   // TLD numerico
     [InlineData("google.co.il", true)]
     [InlineData("sub.ejemplo.co.il", true)]
     [InlineData("afip.gob.ar", true)]

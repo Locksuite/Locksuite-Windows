@@ -75,6 +75,13 @@ public sealed class WhitelistConfig
     [JsonPropertyName("allowLocalNetwork")]
     public bool AllowLocalNetwork { get; set; }
 
+    /// <summary>
+    /// Inspeccion SNI en conexiones HTTPS (puerto 443) mediante proxy transparente local.
+    /// Evita acceder a dominios bloqueados por IP o CDN compartido con dominios permitidos.
+    /// </summary>
+    [JsonPropertyName("sniInspectionEnabled")]
+    public bool SniInspectionEnabled { get; set; } = true;
+
     [JsonPropertyName("packs")]
     public List<DomainPack> Packs { get; set; } = new();
 

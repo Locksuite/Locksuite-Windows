@@ -89,6 +89,21 @@ public sealed class ServiceStatusDto
 
     [JsonPropertyName("captivePortalRemainingSeconds")]
     public int CaptivePortalRemainingSeconds { get; set; }
+
+    [JsonPropertyName("isSniProxyActive")]
+    public bool IsSniProxyActive { get; set; }
+
+    [JsonPropertyName("sniInspectionEnabled")]
+    public bool SniInspectionEnabled { get; set; }
+
+    [JsonPropertyName("sniAllowedConnections")]
+    public long SniAllowedConnections { get; set; }
+
+    [JsonPropertyName("sniBlockedConnections")]
+    public long SniBlockedConnections { get; set; }
+
+    [JsonPropertyName("isNrptApplied")]
+    public bool IsNrptApplied { get; set; }
 }
 
 public sealed class AuthRequestDto

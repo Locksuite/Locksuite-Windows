@@ -7,6 +7,7 @@ using LockSuite.Service.Config;
 using LockSuite.Service.Dns;
 using LockSuite.Service.Ipc;
 using LockSuite.Service.Learning;
+using LockSuite.Service.Proxy;
 using LockSuite.Service.Security;
 using LockSuite.Service.Trial;
 using LockSuite.Service.Updates;
@@ -21,7 +22,7 @@ public static class Program
 {
     public const string ServiceName = "LockSuiteService";
     public const string DisplayName = "LockSuite Filtering Service";
-    public const string Version = "0.5.3";
+    public const string Version = "0.6.0";
 
     public static int Main(string[] args)
     {
@@ -120,10 +121,34 @@ public static class Program
                 services.AddSingleton<LearningManager>();
                 services.AddSingleton<DnsResolver>();
                 services.AddSingleton<DnsConfigurator>();
-                services.AddSingleton<NamedPipeServer>();
-                services.AddSingleton<UpdateManager>();
+                services.AddSingleton<SniProxy>(sp => new SniProxy(
+                    sp.GetRequiredService<ILogger<SniProxy>>(),
+                    sp.GetRequiredService<ConfigManager>(),
+                    sp.GetRequiredService<LearningManager>(),
+                    sp.GetRequiredService<DnsResolver>()));
+                services.AddSingleton<LockSuite.Service.CaptivePortal.CaptivePortalManager>(sp =>
+                    new LockSuite.Service.CaptivePortal.CaptivePortalManager(
+                        sp.GetRequiredService<ILogger<LockSuite.Service.CaptivePortal.CaptivePortalManager>>(),
+                        sp.GetRequiredService<IWfpManager>(),
+                        sp.GetRequiredService<DnsConfigurator>(),
+                        () => sp.GetRequiredService<DnsResolver>().IsListening));
+                services.AddSingleton<NamedPipeServer>(sp => new NamedPipeServer(
+                    sp.GetRequiredService<ILogger<NamedPipeServer>>(),
+                    sp.GetRequiredService<ConfigManager>(),
+                    sp.GetRequiredService<SecurityManager>(),
+                    sp.GetRequiredService<IWfpManager>(),
+                    sp.GetRequiredService<DnsResolver>(),
+                    sp.GetRequiredService<LearningManager>(),
+                    sp.GetRequiredService<TrialManager>(),
+                    null,
+                    sp.GetRequiredService<LockSuite.Service.CaptivePortal.CaptivePortalManager>(),
+                    sp.GetRequiredService<SniProxy>(),
+                    sp.GetRequiredService<DnsConfigurator>()));
+                services.AddSingleton<UpdateManager>(sp => new UpdateManager(
+                    sp.GetRequiredService<ILogger<UpdateManager>>(),
+                    null,
+                    sp.GetRequiredService<DnsResolver>()));
                 services.AddSingleton<TrialManager>();
-                services.AddSingleton<LockSuite.Service.CaptivePortal.CaptivePortalManager>();
 
                 services.AddHostedService(sp => new Worker(
                     sp.GetRequiredService<ILogger<Worker>>(),
@@ -134,6 +159,8 @@ public static class Program
                     sp.GetRequiredService<NamedPipeServer>(),
                     sp.GetRequiredService<UpdateManager>(),
                     sp.GetRequiredService<TrialManager>(),
+                    sp.GetRequiredService<SniProxy>(),
+                    sp.GetRequiredService<LockSuite.Service.CaptivePortal.CaptivePortalManager>(),
                     testWfpMode: testWfpMode
                 ));
             });
@@ -162,7 +189,7 @@ public static class Program
         string password = string.Empty;
         try
         {
-            password = File.ReadAllText(path).Trim();
+            password = File.ReadAllText(path).TrimEnd('\r', '\n');
         }
         catch (Exception ex)
         {
@@ -286,14 +313,14 @@ public static class Program
         }
 
         Console.WriteLine($"Instalando servicio '{ServiceName}'...");
-        string scArgs = $"create {ServiceName} binPath= \"\\\"{exePath}\\\"\" start= auto DisplayName= \"{DisplayName}\"";
+        string scArgs = $"create {ServiceName} binPath= \"\\\"{exePath}\\\"\" start= auto depend= BFE DisplayName= \"{DisplayName}\"";
         int rc = RunSc(scArgs);
         if (rc != 0)
         {
             // Idempotencia (actualización/upgrade): el servicio probablemente ya existe.
-            // En vez de fallar, actualizamos la ruta del binario y el modo de arranque.
+            // En vez de fallar, actualizamos la ruta del binario, dependencia BFE y modo de arranque.
             Console.WriteLine("El servicio ya existe o no se pudo crear; intentando actualizar su configuración (upgrade)...");
-            RunSc($"config {ServiceName} binPath= \"\\\"{exePath}\\\"\" start= auto");
+            RunSc($"config {ServiceName} binPath= \"\\\"{exePath}\\\"\" start= auto depend= BFE");
         }
 
         // Descripción visible en services.msc (idempotente).
@@ -311,6 +338,7 @@ public static class Program
     {
         Console.WriteLine($"Desinstalando servicio '{ServiceName}'...");
         RunSc($"stop {ServiceName}");
+        WaitForServiceStopped(TimeSpan.FromSeconds(15));
         int rc = RunSc($"delete {ServiceName}");
         // Limpieza de artefactos de red por si la parada no alcanzó a revertirlos.
         ResetWfp();
@@ -326,7 +354,48 @@ public static class Program
     private static int StopServiceCommand()
     {
         Console.WriteLine($"Deteniendo servicio '{ServiceName}'...");
-        return RunSc($"stop {ServiceName}");
+        int rc = RunSc($"stop {ServiceName}");
+        WaitForServiceStopped(TimeSpan.FromSeconds(15));
+        return rc;
+    }
+
+    private static void WaitForServiceStopped(TimeSpan timeout)
+    {
+        var deadline = DateTime.UtcNow + timeout;
+        while (DateTime.UtcNow < deadline)
+        {
+            if (IsServiceStoppedOrMissing()) return;
+            System.Threading.Thread.Sleep(400);
+        }
+    }
+
+    private static bool IsServiceStoppedOrMissing()
+    {
+        try
+        {
+            var psi = new ProcessStartInfo
+            {
+                FileName = "sc.exe",
+                Arguments = $"query {ServiceName}",
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true
+            };
+            using var proc = Process.Start(psi);
+            if (proc == null) return true;
+            var outTask = proc.StandardOutput.ReadToEndAsync();
+            var errTask = proc.StandardError.ReadToEndAsync();
+            if (!proc.WaitForExit(3000)) { try { proc.Kill(true); } catch { } return false; }
+            string output = outTask.GetAwaiter().GetResult();
+            _ = errTask.GetAwaiter().GetResult();
+            if (proc.ExitCode == 1060) return true; // El servicio especificado no existe
+            return output.Contains("STOPPED", StringComparison.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     private static int RunSc(string arguments)
@@ -339,13 +408,21 @@ public static class Program
                 Arguments = arguments,
                 UseShellExecute = false,
                 RedirectStandardOutput = true,
-                RedirectStandardError = true
+                RedirectStandardError = true,
+                CreateNoWindow = true
             };
             using var proc = Process.Start(psi);
             if (proc == null) return 1;
-            proc.WaitForExit();
-            Console.WriteLine(proc.StandardOutput.ReadToEnd());
-            string err = proc.StandardError.ReadToEnd();
+            var outTask = proc.StandardOutput.ReadToEndAsync();
+            var errTask = proc.StandardError.ReadToEndAsync();
+            if (!proc.WaitForExit(15000))
+            {
+                try { proc.Kill(true); } catch { }
+                Console.Error.WriteLine($"Timeout al invocar sc.exe {arguments}");
+                return 1;
+            }
+            Console.WriteLine(outTask.GetAwaiter().GetResult());
+            string err = errTask.GetAwaiter().GetResult();
             if (!string.IsNullOrEmpty(err)) Console.Error.WriteLine(err);
             return proc.ExitCode;
         }

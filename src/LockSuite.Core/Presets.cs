@@ -110,43 +110,58 @@ public static class Presets
         "msftconnecttest.com",    // deteccion de conectividad de Windows (cubre www.msftconnecttest.com)
         "msftncsi.com",           // deteccion de conectividad (cubre www.msftncsi.com, dns.msftncsi.com)
         // --- Validacion de certificados (OCSP / CRL / AIA de las CAs mas usadas) ---
-        // Son hosts de PKI (estado de certificados y certificados intermedios), no contenido
-        // navegable. Sin esto, los sitios HTTPS de esas CAs validan lento o fallan (sesion 11).
-        "digicert.com",           // ocsp.digicert.com, crl3./crl4.digicert.com, cacerts.digicert.com
-        "verisign.com",
-        "globalsign.com",         // ocsp.globalsign.com, crl.globalsign.com
-        "letsencrypt.org",
-        "lencr.org",              // OCSP/CRL/intermedios de Let's Encrypt (o.lencr.org, c.lencr.org, x1.c.lencr.org) — la CA mas usada de la web
-        "amazontrust.com",        // OCSP/CRL de Amazon (certificados de sitios en AWS/CloudFront): ocsp.rootca1.amazontrust.com, crl.*
-        "sectigo.com",            // ocsp.sectigo.com, crl.sectigo.com, crt.sectigo.com
-        "usertrust.com",          // raiz USERTrust (familia Sectigo/Comodo)
-        "comodoca.com",           // ocsp.comodoca.com, crl.comodoca.com, crt.comodoca.com
-        "identrust.com",          // IdenTrust (cadena historica de Let's Encrypt)
-        "entrust.net",            // ocsp.entrust.net, crl.entrust.net
-        "geotrust.com",           // marcas viejas de DigiCert (status.geotrust.com, ...)
-        "thawte.com",
-        "rapidssl.com",
-        "quovadisglobal.com",     // QuoVadis (DigiCert, comun en Europa): ocsp./crl.quovadisglobal.com
+        // Acotados a sus subdominios PKI para no habilitar sitios/foros publicos de las CAs.
+        "ocsp.digicert.com",
+        "crl3.digicert.com",
+        "crl4.digicert.com",
+        "cacerts.digicert.com",
+        "ocsp.globalsign.com",
+        "ocsp2.globalsign.com",
+        "crl.globalsign.com",
+        "secure.globalsign.com",
+        "lencr.org",              // OCSP/CRL/intermedios de Let's Encrypt (o.lencr.org, c.lencr.org, x1.c.lencr.org)
+        "amazontrust.com",        // OCSP/CRL de Amazon (certificados de sitios en AWS/CloudFront)
+        "ocsp.sectigo.com",
+        "crl.sectigo.com",
+        "crt.sectigo.com",
+        "ocsp.comodoca.com",
+        "crl.comodoca.com",
+        "crt.comodoca.com",
+        "ocsp.usertrust.com",
+        "crl.usertrust.com",
+        "crt.usertrust.com",
+        "ocsps.ssl.com",
+        "crls.ssl.com",
+        "cert.ssl.com",
+        "repository.certum.pl",
+        "crl.certum.pl",
+        "ocsp-certum.com",        // OCSP de Certum (subca.ocsp-certum.com, ...)
+        "apps.identrust.com",
+        "ocsp.entrust.net",
+        "crl.entrust.net",
+        "aia.entrust.net",
+        "status.geotrust.com",
+        "crl.geotrust.com",
+        "ocsp.thawte.com",
+        "crl.thawte.com",
+        "status.rapidssl.com",
+        "ocsp.quovadisglobal.com",
+        "crl.quovadisglobal.com",
+        "trust.quovadisglobal.com",
+        "crl.verisign.com",
+        "ocsp.verisign.com",
         "ocsp.godaddy.com",       // GoDaddy: solo los hosts de PKI (no la tienda)
         "crl.godaddy.com",
         "certificates.godaddy.com",
         "ocsp.starfieldtech.com", // Starfield (GoDaddy)
         "crl.starfieldtech.com",
         "certificates.starfieldtech.com",
-        "ssl.com",                // SSL.com: una de las 3 CAs de los certificados de Cloudflare (ocsps., crls., cert.ssl.com)
-        "certum.pl",              // Certum: firma cruzada de la cadena de SSL.com (Cloudflare)
-        "ocsp-certum.com",        // OCSP de Certum (subca.ocsp-certum.com, ...)
         "msocsp.com",             // PKI de Microsoft (ocsp.msocsp.com)
         "oneocsp.microsoft.com",  // OCSP de Microsoft (sitios en Azure con certificados de Microsoft)
         "crl.microsoft.com",      // CRL de Microsoft
         "mscrl.microsoft.com",    // CRL de Microsoft
-        "ctldl.windowsupdate.com",// Actualizacion automatica de certificados RAIZ de Windows: sin esto, Edge y los
-                                  // programas que usan el almacen de Windows muestran "La conexion no es privada"
-                                  // con sitios cuya raiz todavia no se descargo (p. ej. raices nuevas de Cloudflare/SSL.com).
-        "pki.goog",               // Google Trust Services (otra CA de Cloudflare): ocsp.pki.goog, crl.pki.goog, c.pki.goog, i.pki.goog
-        "api.github.com",         // Actualizaciones automaticas de LockSuite (metadata del release)
-        "github.com",             // Pagina del release / redireccion de descarga
-        "githubusercontent.com"   // Descarga del instalador: cubre objects./raw./release-assets. (todos los subdominios)
+        "ctldl.windowsupdate.com",// Actualizacion automatica de certificados RAIZ de Windows
+        "pki.goog"                // Google Trust Services (otra CA de Cloudflare): ocsp.pki.goog, crl.pki.goog, c.pki.goog, i.pki.goog
     };
 
     /// <summary>
@@ -367,6 +382,20 @@ public static class Presets
         "www.google.com.ar",
         "=google.co.il",
         "www.google.co.il",
+        "cse.google.com",
+        "search.google.com",
+        "m.google.com",
+        "scholar.google.com",
+        "videos.google.com",
+        "shopping.google.com",
+        "translate.google.com",
+        "colab.research.google.com",
+        "webcache.googleusercontent.com",
+        "play.google.com",
+        "maps.google.com",
+        "script.google.com",
+        "sites.google.com",
+        "storage.googleapis.com",
         // Gemini y otras IA de Google
         "gemini.google.com",
         "bard.google.com",
@@ -377,6 +406,8 @@ public static class Presets
         "labs.google",
         "labs.google.com",
         "assistant.google.com",
+        "jules.google.com",
+        "opal.withgoogle.com",
         "gemini.gstatic.com",
         "generativelanguage.googleapis.com",
         "aiplatform.googleapis.com",
@@ -450,11 +481,15 @@ public static class Presets
             {
                 "*.ntp.org", "*.digicert.com", "*.verisign.com", "ocsp.pki.goog", "*.globalsign.com",
                 "*.letsencrypt.org", "*.int-x3.letsencrypt.org", "objects.githubusercontent.com",
-                "raw.githubusercontent.com"
+                "raw.githubusercontent.com",
+                "api.github.com", "github.com", "githubusercontent.com", "letsencrypt.org",
+                "digicert.com", "verisign.com", "globalsign.com", "sectigo.com", "usertrust.com",
+                "comodoca.com", "identrust.com", "entrust.net", "geotrust.com", "thawte.com",
+                "rapidssl.com", "quovadisglobal.com", "ssl.com", "certum.pl"
             },
             Title = "Esenciales del sistema",
             Icon = "⚙️",
-            Description = "Hora, validación de certificados y actualizaciones de LockSuite."
+            Description = "Hora, validación de certificados (OCSP/CRL) y conectividad de Windows. Las actualizaciones de LockSuite se descargan aparte sin abrir GitHub."
         },
         new PresetDefinition
         {
@@ -523,7 +558,7 @@ public static class Presets
             Title = "Google Drive",
             Icon = "📁",
             Description = "Drive, Documentos, Hojas de cálculo, Presentaciones y Formularios.",
-            Notice = "Permite ver todo lo que le compartan. Si un video no se reproduce en la vista previa, se puede descargar.",
+            Notice = "Permite ver todo lo que le compartan. Si un video no se reproduce en la vista previa, se puede descargar. Las funciones de búsqueda web dentro de Documentos o Hojas siguen bloqueadas si requieren buscador o sitios externos.",
             OpenUrl = "https://drive.google.com/drive/my-drive"
         },
         new PresetDefinition
@@ -594,7 +629,8 @@ public static class Presets
             LegacyDomains = new[] { "*.mercadopago.com.ar", "*.mercadolibre.com.ar", "*.mlstatic.com", "*.mercadopago.com" },
             Title = "Mercado Pago",
             Icon = "💳",
-            Description = "Pagos con Mercado Pago."
+            Description = "Pagos con Mercado Pago.",
+            Notice = "Incluye Mercado Libre (Mercado Pago se apoya en sus dominios y CDN)."
         },
     };
 
@@ -684,6 +720,9 @@ public static class Presets
         ("storeedgefd.dsx.mp.microsoft.com", "Tienda de Microsoft: no incluida."),
         ("displaycatalog.mp.microsoft.com", "Tienda de Microsoft: no incluida."),
         ("login.live.com", "Cuenta Microsoft (OneDrive, Outlook.com, inicio de sesión de Windows): permitir solo si se usa una cuenta Microsoft."),
+        ("github.com", "LockSuite se actualiza solo por su cuenta sin abrir GitHub al navegador; permitir solo si el usuario necesita programar en GitHub."),
+        ("api.github.com", "LockSuite se actualiza solo por su cuenta sin abrir GitHub al navegador; permitir solo si el usuario necesita programar en GitHub."),
+        ("githubusercontent.com", "LockSuite se actualiza solo por su cuenta sin abrir GitHub al navegador; permitir solo si el usuario necesita programar en GitHub."),
     };
 
     // ------------------------------------------------------------------------------------

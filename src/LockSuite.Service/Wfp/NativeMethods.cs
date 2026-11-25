@@ -51,6 +51,14 @@ public struct FWP_V4_ADDR_AND_MASK
     public uint mask;
 }
 
+[StructLayout(LayoutKind.Sequential, Pack = 1)]
+public struct FWP_V6_ADDR_AND_MASK
+{
+    [MarshalAs(UnmanagedType.ByValArray, SizeConst = 16)]
+    public byte[] addr;
+    public byte prefixLength;
+}
+
 [StructLayout(LayoutKind.Explicit)]
 public struct FWP_VALUE0
 {
@@ -91,6 +99,10 @@ public struct FWP_CONDITION_VALUE0
     public IntPtr v4AddrMask;
     [FieldOffset(8)]
     public IntPtr byteArray16;
+    [FieldOffset(8)]
+    public IntPtr sd;
+    [FieldOffset(8)]
+    public IntPtr v6AddrMask;
 }
 
 [StructLayout(LayoutKind.Sequential)]

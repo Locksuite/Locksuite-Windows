@@ -24,10 +24,12 @@ public sealed class SecurityManager
     private const int SaltSize = 16;
     private const int HashSize = 32;
     private const int Iterations = 100_000;
+    public const int MinPasswordLength = 6;
     private static readonly byte[] Entropy = "LockSuite-Master-Key-Entropy-v1"u8.ToArray();
 
     private readonly string _authFilePath;
     private readonly ILogger<SecurityManager> _logger;
+    private readonly Func<DateTimeOffset> _utcNow;
     private readonly object _lock = new();
 
     // Anti-fuerza bruta
@@ -38,9 +40,13 @@ public sealed class SecurityManager
     private readonly ConcurrentDictionary<string, DateTimeOffset> _activeSessions = new();
     private static readonly TimeSpan SessionDuration = TimeSpan.FromMinutes(15);
 
-    public SecurityManager(ILogger<SecurityManager> logger, string? customAuthPath = null)
+    public SecurityManager(
+        ILogger<SecurityManager> logger,
+        string? customAuthPath = null,
+        Func<DateTimeOffset>? utcNowProvider = null)
     {
         _logger = logger;
+        _utcNow = utcNowProvider ?? (() => DateTimeOffset.UtcNow);
         if (!string.IsNullOrEmpty(customAuthPath))
         {
             _authFilePath = customAuthPath;
@@ -62,7 +68,7 @@ public sealed class SecurityManager
 
     public bool SetInitialPassword(string password)
     {
-        if (string.IsNullOrWhiteSpace(password)) return false;
+        if (string.IsNullOrWhiteSpace(password) || password.Length < MinPasswordLength) return false;
 
         lock (_lock)
         {
@@ -80,17 +86,17 @@ public sealed class SecurityManager
 
     public bool ChangePassword(string oldPassword, string newPassword)
     {
-        if (string.IsNullOrWhiteSpace(newPassword)) return false;
-
-        var authResult = Authenticate(oldPassword, out _);
-        if (authResult != AuthResult.Success)
-        {
-            _logger.LogWarning("Fallo al cambiar contraseña: autenticación de contraseña anterior denegada ({Result})", authResult);
-            return false;
-        }
+        if (string.IsNullOrWhiteSpace(newPassword) || newPassword.Length < MinPasswordLength) return false;
 
         lock (_lock)
         {
+            var authResult = VerifyAndTrackAttemptNoLock(oldPassword, out _);
+            if (authResult != AuthResult.Success)
+            {
+                _logger.LogWarning("Fallo al cambiar contraseña: autenticación de contraseña anterior denegada ({Result})", authResult);
+                return false;
+            }
+
             SavePasswordInternal(newPassword);
             _activeSessions.Clear(); // Invalida sesiones anteriores
             _logger.LogInformation("Contraseña maestra actualizada exitosamente");
@@ -104,67 +110,92 @@ public sealed class SecurityManager
 
         lock (_lock)
         {
-            var now = DateTimeOffset.UtcNow;
-            if (now < _lockoutUntil)
+            var result = VerifyAndTrackAttemptNoLock(password, out var now);
+            if (result != AuthResult.Success)
             {
-                var remaining = _lockoutUntil - now;
-                _logger.LogWarning("Intento de login bloqueado por límite de intentos. Restante: {Seconds}s", 
-                    (int)remaining.TotalSeconds);
-                return AuthResult.LockedOut;
+                return result;
             }
 
-            // El bloqueo expiro: reiniciar el contador para no re-bloquear al primer error posterior.
-            if (_lockoutUntil != DateTimeOffset.MinValue)
+            // Purgar sesiones expiradas antes de emitir una nueva
+            foreach (var kvp in _activeSessions)
             {
-                _consecutiveFailedAttempts = 0;
-                _lockoutUntil = DateTimeOffset.MinValue;
-            }
-
-            if (!File.Exists(_authFilePath))
-            {
-                _logger.LogWarning("Autenticación solicitada pero la contraseña maestra no fue inicializada");
-                return AuthResult.NotInitialized;
-            }
-
-            if (!VerifyPasswordInternal(password))
-            {
-                _consecutiveFailedAttempts++;
-                if (_consecutiveFailedAttempts >= 10)
+                if (now >= kvp.Value)
                 {
-                    _lockoutUntil = now.AddMinutes(5);
-                    _logger.LogWarning("Límite crítico de fallos alcanzado ({Attempts}). Bloqueo por 5 minutos.", _consecutiveFailedAttempts);
+                    _activeSessions.TryRemove(kvp.Key, out _);
                 }
-                else if (_consecutiveFailedAttempts >= 5)
-                {
-                    _lockoutUntil = now.AddSeconds(60);
-                    _logger.LogWarning("Límite de fallos alcanzado ({Attempts}). Bloqueo por 60 segundos.", _consecutiveFailedAttempts);
-                }
-
-                return AuthResult.InvalidPassword;
             }
 
-            // Exito: reiniciar contador de fallos
-            _consecutiveFailedAttempts = 0;
-            _lockoutUntil = DateTimeOffset.MinValue;
-
-            // Generar token de sesion
-            sessionToken = Guid.NewGuid().ToString("N");
+            // Generar token de sesión criptográficamente seguro
+            sessionToken = Convert.ToHexString(RandomNumberGenerator.GetBytes(32)).ToLowerInvariant();
             _activeSessions[sessionToken] = now.Add(SessionDuration);
             _logger.LogInformation("Autenticación exitosa. Sesión emitida válida por {Minutes} minutos", SessionDuration.TotalMinutes);
             return AuthResult.Success;
         }
     }
 
+    private AuthResult VerifyAndTrackAttemptNoLock(string password, out DateTimeOffset now)
+    {
+        now = _utcNow();
+        if (now < _lockoutUntil)
+        {
+            var remaining = _lockoutUntil - now;
+            _logger.LogWarning("Intento de login bloqueado por límite de intentos. Restante: {Seconds}s",
+                (int)remaining.TotalSeconds);
+            return AuthResult.LockedOut;
+        }
+
+        // El bloqueo expiró: limpiar _lockoutUntil SIN reiniciar _consecutiveFailedAttempts
+        // para preservar la escalada progresiva hasta una autenticación exitosa.
+        if (_lockoutUntil != DateTimeOffset.MinValue)
+        {
+            _lockoutUntil = DateTimeOffset.MinValue;
+        }
+
+        if (!File.Exists(_authFilePath))
+        {
+            _logger.LogWarning("Autenticación solicitada pero la contraseña maestra no fue inicializada");
+            return AuthResult.NotInitialized;
+        }
+
+        if (!VerifyPasswordInternal(password))
+        {
+            _consecutiveFailedAttempts++;
+            if (_consecutiveFailedAttempts >= 15)
+            {
+                _lockoutUntil = now.AddMinutes(15);
+                _logger.LogWarning("Límite severo de fallos alcanzado ({Attempts}). Bloqueo por 15 minutos.", _consecutiveFailedAttempts);
+            }
+            else if (_consecutiveFailedAttempts >= 10)
+            {
+                _lockoutUntil = now.AddMinutes(5);
+                _logger.LogWarning("Límite crítico de fallos alcanzado ({Attempts}). Bloqueo por 5 minutos.", _consecutiveFailedAttempts);
+            }
+            else if (_consecutiveFailedAttempts >= 5)
+            {
+                _lockoutUntil = now.AddSeconds(60);
+                _logger.LogWarning("Límite de fallos alcanzado ({Attempts}). Bloqueo por 60 segundos.", _consecutiveFailedAttempts);
+            }
+
+            return AuthResult.InvalidPassword;
+        }
+
+        // Éxito: reiniciar contador de fallos y lockout
+        _consecutiveFailedAttempts = 0;
+        _lockoutUntil = DateTimeOffset.MinValue;
+        return AuthResult.Success;
+    }
+
     public bool ValidateSession(string? sessionToken)
     {
         if (string.IsNullOrWhiteSpace(sessionToken)) return false;
 
+        var now = _utcNow();
         if (_activeSessions.TryGetValue(sessionToken, out var expiration))
         {
-            if (DateTimeOffset.UtcNow < expiration)
+            if (now < expiration)
             {
                 // Renueva la ventana de sesión en actividad
-                _activeSessions[sessionToken] = DateTimeOffset.UtcNow.Add(SessionDuration);
+                _activeSessions[sessionToken] = now.Add(SessionDuration);
                 return true;
             }
             _activeSessions.TryRemove(sessionToken, out _);
@@ -219,6 +250,7 @@ public sealed class SecurityManager
 
     private bool VerifyPasswordInternal(string password)
     {
+        if (password is null) return false;
         try
         {
             byte[] encrypted = File.ReadAllBytes(_authFilePath);

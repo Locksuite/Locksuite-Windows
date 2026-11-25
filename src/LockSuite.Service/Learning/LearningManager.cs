@@ -55,12 +55,20 @@ public sealed class LearningManager : IDisposable
 
         lock (_lock)
         {
-            var existing = _events.Find(e => string.Equals(e.Domain, domain, StringComparison.OrdinalIgnoreCase));
-            if (existing is not null)
+            int idx = _events.FindIndex(e => string.Equals(e.Domain, domain, StringComparison.OrdinalIgnoreCase));
+            if (idx >= 0)
             {
+                var existing = _events[idx];
                 existing.Timestamp = DateTimeOffset.UtcNow;
                 existing.Count++;
                 if (!string.IsNullOrEmpty(clientIp)) existing.ClientIp = clientIp;
+
+                // Mover a la cabeza para mantener orden MRU (la evicción siempre elimina el menos reciente).
+                if (idx > 0)
+                {
+                    _events.RemoveAt(idx);
+                    _events.Insert(0, existing);
+                }
             }
             else
             {

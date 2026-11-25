@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Threading;
 using LockSuite.Core;
@@ -17,6 +18,11 @@ public sealed class MainViewModel : ViewModelBase
     private bool _isWfpActive;
     private bool _isSimulationMode;
     private bool _isDnsListening;
+    private bool _isSniProxyActive;
+    private bool _sniInspectionEnabled = true;
+    private long _sniAllowedConnections;
+    private long _sniBlockedConnections;
+    private bool _isNrptApplied;
     private bool _failClosed = true;
     private bool _learningMode = true;
     private bool _allowLocalNetwork;
@@ -28,6 +34,7 @@ public sealed class MainViewModel : ViewModelBase
     private long _allowedQueries;
     private long _blockedQueries;
     private int _whitelistPatternsCount;
+    private string _searchQuery = "";
 
     // Modo de prueba
     private bool _isTrialActive;
@@ -50,20 +57,33 @@ public sealed class MainViewModel : ViewModelBase
         set
         {
             if (SetProperty(ref _isConnected, value))
+            {
                 OnPropertyChanged(nameof(IsDnsDown));
+                OnPropertyChanged(nameof(DnsSummaryText));
+                OnPropertyChanged(nameof(SniSummaryText));
+                RaiseHeroPropertiesChanged();
+            }
         }
     }
 
     public bool IsWfpActive
     {
         get => _isWfpActive;
-        set => SetProperty(ref _isWfpActive, value);
+        set
+        {
+            if (SetProperty(ref _isWfpActive, value))
+                RaiseHeroPropertiesChanged();
+        }
     }
 
     public bool IsSimulationMode
     {
         get => _isSimulationMode;
-        set => SetProperty(ref _isSimulationMode, value);
+        set
+        {
+            if (SetProperty(ref _isSimulationMode, value))
+                RaiseHeroPropertiesChanged();
+        }
     }
 
     public bool IsDnsListening
@@ -72,7 +92,11 @@ public sealed class MainViewModel : ViewModelBase
         set
         {
             if (SetProperty(ref _isDnsListening, value))
+            {
                 OnPropertyChanged(nameof(IsDnsDown));
+                OnPropertyChanged(nameof(DnsSummaryText));
+                RaiseHeroPropertiesChanged();
+            }
         }
     }
 
@@ -83,6 +107,56 @@ public sealed class MainViewModel : ViewModelBase
     /// </summary>
     public bool IsDnsDown => _isConnected && !_isDnsListening;
 
+    public bool IsSniProxyActive
+    {
+        get => _isSniProxyActive;
+        set
+        {
+            if (SetProperty(ref _isSniProxyActive, value))
+                OnPropertyChanged(nameof(SniSummaryText));
+        }
+    }
+
+    public bool SniInspectionEnabled
+    {
+        get => _sniInspectionEnabled;
+        set
+        {
+            if (SetProperty(ref _sniInspectionEnabled, value))
+                OnPropertyChanged(nameof(SniSummaryText));
+        }
+    }
+
+    public long SniAllowedConnections
+    {
+        get => _sniAllowedConnections;
+        set
+        {
+            if (SetProperty(ref _sniAllowedConnections, value))
+                OnPropertyChanged(nameof(SniSummaryText));
+        }
+    }
+
+    public long SniBlockedConnections
+    {
+        get => _sniBlockedConnections;
+        set
+        {
+            if (SetProperty(ref _sniBlockedConnections, value))
+                OnPropertyChanged(nameof(SniSummaryText));
+        }
+    }
+
+    public bool IsNrptApplied
+    {
+        get => _isNrptApplied;
+        set
+        {
+            if (SetProperty(ref _isNrptApplied, value))
+                OnPropertyChanged(nameof(DnsSummaryText));
+        }
+    }
+
     public bool AllowLocalNetwork
     {
         get => _allowLocalNetwork;
@@ -92,7 +166,11 @@ public sealed class MainViewModel : ViewModelBase
     public bool CaptivePortalActive
     {
         get => _captivePortalActive;
-        set => SetProperty(ref _captivePortalActive, value);
+        set
+        {
+            if (SetProperty(ref _captivePortalActive, value))
+                OnPropertyChanged(nameof(DnsSummaryText));
+        }
     }
 
     public string CaptivePortalBannerText
@@ -104,7 +182,85 @@ public sealed class MainViewModel : ViewModelBase
     public bool FailClosed
     {
         get => _failClosed;
-        set => SetProperty(ref _failClosed, value);
+        set
+        {
+            if (SetProperty(ref _failClosed, value))
+                OnPropertyChanged(nameof(FailClosedSummaryText));
+        }
+    }
+
+    public string DnsSummaryText
+    {
+        get
+        {
+            if (!IsConnected) return "Sin conexión con el servicio";
+            if (!IsDnsListening) return "Puerto 53 ocupado — Resolutor detenido";
+            if (CaptivePortalActive) return "127.0.0.1:53 (UDP/TCP) — NRPT suspendido por portal cautivo";
+            if (IsNrptApplied) return "127.0.0.1:53 (UDP/TCP) — Redirección NRPT Activa";
+            return "127.0.0.1:53 (UDP/TCP) — NRPT pendiente";
+        }
+    }
+
+    public string SniSummaryText
+    {
+        get
+        {
+            if (!IsConnected) return "Sin conexión con el servicio";
+            if (!SniInspectionEnabled) return "Desactivada por el tutor";
+            if (IsSniProxyActive) return $"Activa (127.0.0.1:443/80) — Permitidas: {SniAllowedConnections}, Bloqueadas: {SniBlockedConnections}";
+            return "Inactiva (puerto 443/80 no disponible)";
+        }
+    }
+
+    public string FailClosedSummaryText => FailClosed
+        ? "Fail-Closed (Cerrado por defecto)"
+        : "Fail-Open";
+
+    public string HeroBannerBackground
+    {
+        get
+        {
+            if (!IsConnected) return "#991B1B";
+            if (IsSimulationMode) return "#B45309";
+            if (!IsWfpActive) return "#991B1B";
+            if (IsDnsDown) return "#B45309";
+            return "#1E40AF";
+        }
+    }
+
+    public string HeroBannerTitle
+    {
+        get
+        {
+            if (!IsConnected) return "Sin conexión con el servicio LockSuite";
+            if (IsSimulationMode) return "Modo Simulación — Sin Filtrado Real";
+            if (!IsWfpActive) return "Filtro WFP Inactivo — Protección Detenida";
+            if (IsDnsDown) return "Resolutor DNS Detenido — Red Bloqueada";
+            return "Protección por Lista Blanca Activa";
+        }
+    }
+
+    public string HeroBannerSubtitle
+    {
+        get
+        {
+            if (!IsConnected)
+                return "No se pudo contactar al servicio LockSuite. Verificá que LockSuiteService esté en ejecución.";
+            if (IsSimulationMode)
+                return "El servicio no pudo aplicar los filtros WFP por falta de privilegios de administrador. La navegación no está protegida.";
+            if (!IsWfpActive)
+                return "El servicio está conectado, pero los filtros WFP de salida no están aplicados en este momento.";
+            if (IsDnsDown)
+                return "El puerto 53 está ocupado por otro programa. El bloqueo Fail-Closed sigue activo, pero los sitios permitidos pueden no abrir.";
+            return "Todo internet está bloqueado por defecto. Solo las conexiones a sitios permitidos en la lista son resueltas y autorizadas temporalmente en WFP.";
+        }
+    }
+
+    private void RaiseHeroPropertiesChanged()
+    {
+        OnPropertyChanged(nameof(HeroBannerBackground));
+        OnPropertyChanged(nameof(HeroBannerTitle));
+        OnPropertyChanged(nameof(HeroBannerSubtitle));
     }
 
     public bool LearningMode
@@ -147,6 +303,18 @@ public sealed class MainViewModel : ViewModelBase
     {
         get => _whitelistPatternsCount;
         set => SetProperty(ref _whitelistPatternsCount, value);
+    }
+
+    public string SearchQuery
+    {
+        get => _searchQuery;
+        set
+        {
+            if (SetProperty(ref _searchQuery, value ?? ""))
+            {
+                ApplyPackFilter();
+            }
+        }
     }
 
     public bool IsTrialActive
@@ -195,6 +363,8 @@ public sealed class MainViewModel : ViewModelBase
 
     public ObservableCollection<PackViewModel> Packs { get; } = new();
 
+    public ObservableCollection<PackViewModel> FilteredPacks { get; } = new();
+
     /// <summary>
     /// Paquetes que se muestran como tarjeta "Permitir X" (Gmail, Chat, Drive, Fotos, prog.co.il,
     /// mitmachim.top), en el orden del catalogo. Son las mismas instancias que en <see cref="Packs"/>.
@@ -218,10 +388,38 @@ public sealed class MainViewModel : ViewModelBase
     // Evita refrescos superpuestos: el temporizador dispara cada 3 s y, si el servicio tarda en
     // responder, antes se acumulaban consultas (y ventanas "colgadas") una encima de otra.
     private int _refreshing;
+    private int _pauseRefreshCount;
+
+    /// <summary>
+    /// Pausa temporalmente el refresco periódico mientras hay diálogos modales abiertos,
+    /// evitando que el timer pise cambios pendientes en la UI.
+    /// </summary>
+    public IDisposable PauseRefresh() => new RefreshPauseScope(this);
+
+    private sealed class RefreshPauseScope : IDisposable
+    {
+        private readonly MainViewModel _owner;
+        private int _disposed;
+
+        public RefreshPauseScope(MainViewModel owner)
+        {
+            _owner = owner;
+            Interlocked.Increment(ref _owner._pauseRefreshCount);
+        }
+
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref _disposed, 1) == 0)
+            {
+                Interlocked.Decrement(ref _owner._pauseRefreshCount);
+            }
+        }
+    }
 
     public async Task RefreshDataAsync()
     {
-        if (System.Threading.Interlocked.Exchange(ref _refreshing, 1) == 1) return;
+        if (Volatile.Read(ref _pauseRefreshCount) > 0) return;
+        if (Interlocked.Exchange(ref _refreshing, 1) == 1) return;
         try
         {
             var status = await _client.GetStatusAsync();
@@ -231,6 +429,11 @@ public sealed class MainViewModel : ViewModelBase
                 IsWfpActive = status.IsWfpActive;
                 IsSimulationMode = status.IsSimulationMode;
                 IsDnsListening = status.IsDnsListening;
+                IsSniProxyActive = status.IsSniProxyActive;
+                SniInspectionEnabled = status.SniInspectionEnabled;
+                SniAllowedConnections = status.SniAllowedConnections;
+                SniBlockedConnections = status.SniBlockedConnections;
+                IsNrptApplied = status.IsNrptApplied;
                 FailClosed = status.FailClosed;
                 LearningMode = status.LearningMode;
                 IsPasswordConfigured = status.IsPasswordConfigured;
@@ -261,13 +464,9 @@ public sealed class MainViewModel : ViewModelBase
                 return;
             }
 
-            // Actualizar recientes
+            // Actualizar recientes incrementalmente sin perder posición/scroll si no hace falta
             var blockedList = await _client.GetRecentBlockedAsync();
-            RecentBlocked.Clear();
-            foreach (var b in blockedList)
-            {
-                RecentBlocked.Add(b);
-            }
+            SyncRecentBlocked(blockedList);
 
             // Estado del modo de prueba
             await RefreshTrialAsync();
@@ -284,9 +483,69 @@ public sealed class MainViewModel : ViewModelBase
         }
         finally
         {
-            System.Threading.Interlocked.Exchange(ref _refreshing, 0);
+            Interlocked.Exchange(ref _refreshing, 0);
         }
     }
+
+    private void SyncRecentBlocked(IReadOnlyList<BlockedDomainEvent> latest)
+    {
+        if (latest.Count == 0)
+        {
+            if (RecentBlocked.Count > 0) RecentBlocked.Clear();
+            return;
+        }
+
+        if (RecentBlocked.Count == latest.Count)
+        {
+            bool identical = true;
+            for (int i = 0; i < latest.Count; i++)
+            {
+                if (!SameBlockedEvent(RecentBlocked[i], latest[i]))
+                {
+                    identical = false;
+                    break;
+                }
+            }
+            if (identical) return;
+        }
+
+        for (int i = 0; i < latest.Count; i++)
+        {
+            var item = latest[i];
+            if (i < RecentBlocked.Count)
+            {
+                if (SameBlockedEvent(RecentBlocked[i], item)) continue;
+
+                if (i + 1 < RecentBlocked.Count && SameBlockedEvent(RecentBlocked[i + 1], item))
+                {
+                    RecentBlocked.RemoveAt(i);
+                }
+                else if (RecentBlocked.Count < latest.Count && SameBlockedEvent(RecentBlocked[i], latest[i + 1]))
+                {
+                    RecentBlocked.Insert(i, item);
+                }
+                else
+                {
+                    RecentBlocked[i] = item;
+                }
+            }
+            else
+            {
+                RecentBlocked.Add(item);
+            }
+        }
+
+        while (RecentBlocked.Count > latest.Count)
+        {
+            RecentBlocked.RemoveAt(RecentBlocked.Count - 1);
+        }
+    }
+
+    private static bool SameBlockedEvent(BlockedDomainEvent a, BlockedDomainEvent b)
+        => a.Count == b.Count
+        && a.Timestamp == b.Timestamp
+        && string.Equals(a.Domain, b.Domain, StringComparison.OrdinalIgnoreCase)
+        && string.Equals(a.ClientIp, b.ClientIp, StringComparison.Ordinal);
 
     private async Task RefreshTrialAsync()
     {
@@ -349,6 +608,25 @@ public sealed class MainViewModel : ViewModelBase
                 var vm = Packs.FirstOrDefault(p => string.Equals(p.Id, def.Id, StringComparison.OrdinalIgnoreCase));
                 if (vm != null) ServicePacks.Add(vm);
             }
+
+            ApplyPackFilter();
+        }
+    }
+
+    public void ApplyPackFilter()
+    {
+        string q = _searchQuery.Trim();
+        IEnumerable<PackViewModel> matches = string.IsNullOrEmpty(q)
+            ? Packs
+            : Packs.Where(p =>
+                p.Name.Contains(q, StringComparison.OrdinalIgnoreCase) ||
+                p.Title.Contains(q, StringComparison.OrdinalIgnoreCase) ||
+                p.Domains.Any(d => d.Contains(q, StringComparison.OrdinalIgnoreCase)));
+
+        FilteredPacks.Clear();
+        foreach (var pack in matches)
+        {
+            FilteredPacks.Add(pack);
         }
     }
 
@@ -385,92 +663,143 @@ public sealed class MainViewModel : ViewModelBase
         return (false, error);
     }
 
-    public void LockTutor()
+    public void ClearLocalSession()
     {
         _sessionToken = null;
         IsAuthenticated = false;
     }
 
-    public async Task<bool> TogglePackAsync(PackViewModel pack)
+    public void LockTutor()
     {
-        if (string.IsNullOrEmpty(_sessionToken)) return false;
-        bool ok = await _client.TogglePackAsync(pack.Name, pack.Enabled, _sessionToken);
-        if (ok)
-        {
-            await RefreshDataAsync();
-        }
-        return ok;
+        ClearLocalSession();
     }
+
+    public async Task LockTutorAsync()
+    {
+        string? token = _sessionToken;
+        ClearLocalSession();
+        if (!string.IsNullOrEmpty(token))
+        {
+            try
+            {
+                await _client.LogoutAsync(token);
+            }
+            catch
+            {
+                // Best-effort: el token local ya fue limpiado.
+            }
+        }
+    }
+
+    private async Task<(bool Success, bool SessionExpired, string? Error)> ExecuteTutorMutationAsync(
+        Func<string, Task<(bool Success, bool Unauthorized, string? Error)>> action,
+        Func<Task>? onSuccess = null)
+    {
+        if (string.IsNullOrEmpty(_sessionToken))
+        {
+            ClearLocalSession();
+            return (false, true, "Sesión no autenticada.");
+        }
+
+        var (success, unauthorized, error) = await action(_sessionToken);
+        if (unauthorized)
+        {
+            ClearLocalSession();
+            return (false, true, error ?? "La sesión del tutor expiró. Volvé a autenticarte.");
+        }
+
+        if (success)
+        {
+            if (onSuccess != null) await onSuccess();
+            return (true, false, null);
+        }
+
+        return (false, false, error);
+    }
+
+    public Task<(bool Success, bool SessionExpired, string? Error)> TogglePackDetailedAsync(PackViewModel pack)
+        => ExecuteTutorMutationAsync(
+            token => _client.TogglePackDetailedAsync(pack.Name, pack.Enabled, token),
+            RefreshDataAsync);
+
+    public Task<(bool Success, bool SessionExpired, string? Error)> AddDomainDetailedAsync(string domain, string? packName)
+        => ExecuteTutorMutationAsync(
+            token => _client.AddDomainDetailedAsync(domain, packName, token),
+            async () =>
+            {
+                await ReloadConfigAsync();
+                await RefreshDataAsync();
+            });
+
+    public Task<(bool Success, bool SessionExpired, string? Error)> RemoveDomainDetailedAsync(string domain)
+        => ExecuteTutorMutationAsync(
+            token => _client.RemoveDomainDetailedAsync(domain, token),
+            async () =>
+            {
+                await ReloadConfigAsync();
+                await RefreshDataAsync();
+            });
+
+    public Task<(bool Success, bool SessionExpired, string? Error)> ClearRecentBlockedDetailedAsync()
+        => ExecuteTutorMutationAsync(
+            token => _client.ClearRecentBlockedDetailedAsync(token),
+            () =>
+            {
+                RecentBlocked.Clear();
+                return Task.CompletedTask;
+            });
+
+    public Task<(bool Success, bool SessionExpired, string? Error)> SetLearningModeDetailedAsync(bool enabled)
+        => ExecuteTutorMutationAsync(
+            token => _client.SetLearningModeDetailedAsync(enabled, token),
+            RefreshDataAsync);
+
+    public Task<(bool Success, bool SessionExpired, string? Error)> SetAllowLocalNetworkDetailedAsync(bool enabled)
+        => ExecuteTutorMutationAsync(
+            token => _client.SetAllowLocalNetworkDetailedAsync(enabled, token),
+            RefreshDataAsync);
+
+    public Task<(bool Success, bool SessionExpired, string? Error)> SetSniInspectionDetailedAsync(bool enabled)
+        => ExecuteTutorMutationAsync(
+            token => _client.SetSniInspectionDetailedAsync(enabled, token),
+            RefreshDataAsync);
+
+    public Task<(bool Success, bool SessionExpired, string? Error)> StartCaptivePortalDetailedAsync(int minutes)
+        => ExecuteTutorMutationAsync(
+            token => _client.StartCaptivePortalDetailedAsync(minutes, token),
+            RefreshDataAsync);
+
+    public Task<(bool Success, bool SessionExpired, string? Error)> EndCaptivePortalDetailedAsync()
+        => ExecuteTutorMutationAsync(
+            token => _client.EndCaptivePortalDetailedAsync(token),
+            RefreshDataAsync);
+
+    public async Task<bool> TogglePackAsync(PackViewModel pack)
+        => (await TogglePackDetailedAsync(pack)).Success;
 
     public async Task<bool> AddDomainAsync(string domain, string? packName)
-    {
-        if (string.IsNullOrEmpty(_sessionToken)) return false;
-        bool ok = await _client.AddDomainAsync(domain, packName, _sessionToken);
-        if (ok)
-        {
-            await ReloadConfigAsync();
-            await RefreshDataAsync();
-        }
-        return ok;
-    }
+        => (await AddDomainDetailedAsync(domain, packName)).Success;
 
     public async Task<bool> RemoveDomainAsync(string domain)
-    {
-        if (string.IsNullOrEmpty(_sessionToken)) return false;
-        bool ok = await _client.RemoveDomainAsync(domain, _sessionToken);
-        if (ok)
-        {
-            await ReloadConfigAsync();
-            await RefreshDataAsync();
-        }
-        return ok;
-    }
+        => (await RemoveDomainDetailedAsync(domain)).Success;
 
     public async Task<bool> ClearRecentBlockedAsync()
-    {
-        if (string.IsNullOrEmpty(_sessionToken)) return false;
-        bool ok = await _client.ClearRecentBlockedAsync(_sessionToken);
-        if (ok)
-        {
-            RecentBlocked.Clear();
-        }
-        return ok;
-    }
+        => (await ClearRecentBlockedDetailedAsync()).Success;
 
     public async Task<bool> SetLearningModeAsync(bool enabled)
-    {
-        if (string.IsNullOrEmpty(_sessionToken)) return false;
-        bool ok = await _client.SetLearningModeAsync(enabled, _sessionToken);
-        if (ok)
-        {
-            await RefreshDataAsync();
-        }
-        return ok;
-    }
+        => (await SetLearningModeDetailedAsync(enabled)).Success;
 
     public async Task<bool> SetAllowLocalNetworkAsync(bool enabled)
-    {
-        if (string.IsNullOrEmpty(_sessionToken)) return false;
-        bool ok = await _client.SetAllowLocalNetworkAsync(enabled, _sessionToken);
-        if (ok) await RefreshDataAsync();
-        return ok;
-    }
+        => (await SetAllowLocalNetworkDetailedAsync(enabled)).Success;
 
     public async Task<(bool Success, string? Error)> StartCaptivePortalAsync(int minutes)
     {
-        if (string.IsNullOrEmpty(_sessionToken)) return (false, "Sesión no autenticada");
-        var r = await _client.StartCaptivePortalAsync(minutes, _sessionToken);
-        if (r.Success) await RefreshDataAsync();
-        return r;
+        var r = await StartCaptivePortalDetailedAsync(minutes);
+        return (r.Success, r.Error);
     }
 
     public async Task<bool> EndCaptivePortalAsync()
-    {
-        if (string.IsNullOrEmpty(_sessionToken)) return false;
-        bool ok = await _client.EndCaptivePortalAsync(_sessionToken);
-        if (ok) await RefreshDataAsync();
-        return ok;
-    }
+        => (await EndCaptivePortalDetailedAsync()).Success;
 
     public async Task<(bool Success, string? Error)> SetInitialPasswordAsync(string password)
     {
@@ -480,7 +809,16 @@ public sealed class MainViewModel : ViewModelBase
     public async Task<(bool Success, string? Error)> ChangePasswordAsync(string oldPassword, string newPassword)
     {
         if (string.IsNullOrEmpty(_sessionToken)) return (false, "Sesión no autenticada");
-        return await _client.ChangePasswordAsync(oldPassword, newPassword, _sessionToken);
+        var result = await _client.ChangePasswordAsync(oldPassword, newPassword, _sessionToken);
+        if (result.Success)
+        {
+            var reauth = await AuthenticateTutorAsync(newPassword);
+            if (!reauth.Success)
+            {
+                ClearLocalSession();
+            }
+        }
+        return result;
     }
 
     public async Task<string> RunWfpTestAsync()

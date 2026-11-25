@@ -9,8 +9,10 @@ public static class WfpConstants
     public const ushort LockSuiteSubLayerWeight = 0xEE00; // Peso alto
 
     // Capas WFP (ALE - Application Layer Enforcement)
-    public static readonly Guid FWPM_LAYER_ALE_AUTH_CONNECT_V4 = new("c38d57d1-05a7-4c33-904f-7fbceee60e82");
-    public static readonly Guid FWPM_LAYER_ALE_AUTH_CONNECT_V6 = new("4a72393b-319f-44bc-84c3-ba54dcb3b6b4");
+    public static readonly Guid FWPM_LAYER_ALE_AUTH_CONNECT_V4     = new("c38d57d1-05a7-4c33-904f-7fbceee60e82");
+    public static readonly Guid FWPM_LAYER_ALE_AUTH_CONNECT_V6     = new("4a72393b-319f-44bc-84c3-ba54dcb3b6b4");
+    public static readonly Guid FWPM_LAYER_ALE_AUTH_RECV_ACCEPT_V4 = new("e1cd9fe7-f4b5-4273-96c0-592e487b8650");
+    public static readonly Guid FWPM_LAYER_ALE_AUTH_RECV_ACCEPT_V6 = new("a3b42c97-9f04-4672-b87e-cee9c483257f");
 
     // Campos de condición
     public static readonly Guid FWPM_CONDITION_IP_REMOTE_ADDRESS = new("b235ae9a-1d64-49b8-a44c-5ff3d9095045");
@@ -29,7 +31,10 @@ public static class WfpConstants
     public const uint FWP_UINT64 = 4;
     public const uint FWP_BYTE_ARRAY16_TYPE = 11;
     public const uint FWP_BYTE_BLOB_TYPE = 12;
+    public const uint FWP_SECURITY_DESCRIPTOR_TYPE = 14;
     public const uint FWP_V4_ADDR_MASK = 0x100;
+    public const uint FWP_V6_ADDR_MASK = 0x101;
+    public const uint FWP_ACTRL_MATCH_FILTER = 0x00000001;
 
     // Tipos de comparación (FWP_MATCH_TYPE en fwptypes.h)
     public const uint FWP_MATCH_EQUAL = 0;

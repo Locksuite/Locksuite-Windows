@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.IO.Pipes;
+using System.Runtime.Versioning;
+using System.Security.Principal;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
@@ -13,10 +15,12 @@ public sealed class LockSuiteClient
 {
     private static readonly JsonSerializerOptions JsonOpts = new() { PropertyNameCaseInsensitive = true };
     private readonly string _pipeName;
+    private readonly bool _requireTrustedServer;
 
-    public LockSuiteClient(string? pipeName = null)
+    public LockSuiteClient(string? pipeName = null, bool? requireTrustedServer = null)
     {
         _pipeName = pipeName ?? IpcConstants.PipeName;
+        _requireTrustedServer = requireTrustedServer ?? string.Equals(_pipeName, IpcConstants.PipeName, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>
@@ -35,6 +39,11 @@ public sealed class LockSuiteClient
             using var cts = new CancellationTokenSource(timeoutMs);
 
             await pipe.ConnectAsync(cts.Token).ConfigureAwait(false);
+
+            if (OperatingSystem.IsWindows() && _requireTrustedServer && !VerifyTrustedServerOwner(pipe))
+            {
+                return IpcResponse.Fail("Servidor IPC rechazado: el proceso propietario no es SYSTEM ni Administrador");
+            }
 
             using var reader = new StreamReader(pipe, IpcEncoding, detectEncodingFromByteOrderMarks: true, bufferSize: 4096, leaveOpen: true);
             // Sin AutoFlush: el vaciado es explicito y asincrono (FlushAsync) con timeout.
@@ -101,10 +110,10 @@ public sealed class LockSuiteClient
     }
 
     public async Task<bool> ClearRecentBlockedAsync(string sessionToken)
-    {
-        var resp = await SendCommandAsync("ClearRecentBlocked", sessionToken: sessionToken);
-        return resp.Success;
-    }
+        => (await ClearRecentBlockedDetailedAsync(sessionToken)).Success;
+
+    public async Task<(bool Success, bool Unauthorized, string? Error)> ClearRecentBlockedDetailedAsync(string sessionToken)
+        => ToDetailedResult(await SendCommandAsync("ClearRecentBlocked", sessionToken: sessionToken));
 
     public async Task<(bool Success, string? Token, string? Error)> AuthenticateAsync(string password)
     {
@@ -115,6 +124,12 @@ public sealed class LockSuiteClient
             return (true, resp.Payload, null);
         }
         return (false, null, resp.ErrorMessage ?? "Contraseña incorrecta");
+    }
+
+    public async Task<bool> LogoutAsync(string sessionToken)
+    {
+        var resp = await SendCommandAsync("Logout", sessionToken: sessionToken);
+        return resp.Success;
     }
 
     public async Task<(bool Success, string? Error)> SetInitialPasswordAsync(string password)
@@ -132,24 +147,28 @@ public sealed class LockSuiteClient
     }
 
     public async Task<bool> TogglePackAsync(string packName, bool enabled, string sessionToken)
+        => (await TogglePackDetailedAsync(packName, enabled, sessionToken)).Success;
+
+    public async Task<(bool Success, bool Unauthorized, string? Error)> TogglePackDetailedAsync(string packName, bool enabled, string sessionToken)
     {
         string payload = JsonSerializer.Serialize(new TogglePackDto { PackName = packName, Enabled = enabled });
-        var resp = await SendCommandAsync("TogglePack", payload: payload, sessionToken: sessionToken);
-        return resp.Success;
+        return ToDetailedResult(await SendCommandAsync("TogglePack", payload: payload, sessionToken: sessionToken));
     }
 
     public async Task<bool> AddDomainAsync(string domain, string? packName, string sessionToken)
+        => (await AddDomainDetailedAsync(domain, packName, sessionToken)).Success;
+
+    public async Task<(bool Success, bool Unauthorized, string? Error)> AddDomainDetailedAsync(string domain, string? packName, string sessionToken)
     {
         string payload = JsonSerializer.Serialize(new AddDomainDto { Domain = domain, PackName = packName });
-        var resp = await SendCommandAsync("AddDomain", payload: payload, sessionToken: sessionToken);
-        return resp.Success;
+        return ToDetailedResult(await SendCommandAsync("AddDomain", payload: payload, sessionToken: sessionToken));
     }
 
     public async Task<bool> RemoveDomainAsync(string domain, string sessionToken)
-    {
-        var resp = await SendCommandAsync("RemoveDomain", payload: domain, sessionToken: sessionToken);
-        return resp.Success;
-    }
+        => (await RemoveDomainDetailedAsync(domain, sessionToken)).Success;
+
+    public async Task<(bool Success, bool Unauthorized, string? Error)> RemoveDomainDetailedAsync(string domain, string sessionToken)
+        => ToDetailedResult(await SendCommandAsync("RemoveDomain", payload: domain, sessionToken: sessionToken));
 
     public async Task<bool> SaveConfigAsync(WhitelistConfig config, string sessionToken)
     {
@@ -165,28 +184,61 @@ public sealed class LockSuiteClient
     }
 
     public async Task<bool> SetLearningModeAsync(bool enabled, string sessionToken)
-    {
-        var resp = await SendCommandAsync("SetLearningMode", payload: enabled ? "true" : "false", sessionToken: sessionToken);
-        return resp.Success;
-    }
+        => (await SetLearningModeDetailedAsync(enabled, sessionToken)).Success;
+
+    public async Task<(bool Success, bool Unauthorized, string? Error)> SetLearningModeDetailedAsync(bool enabled, string sessionToken)
+        => ToDetailedResult(await SendCommandAsync("SetLearningMode", payload: enabled ? "true" : "false", sessionToken: sessionToken));
 
     public async Task<bool> SetAllowLocalNetworkAsync(bool enabled, string sessionToken)
-    {
-        var resp = await SendCommandAsync("SetAllowLocalNetwork", payload: enabled ? "true" : "false", sessionToken: sessionToken);
-        return resp.Success;
-    }
+        => (await SetAllowLocalNetworkDetailedAsync(enabled, sessionToken)).Success;
+
+    public async Task<(bool Success, bool Unauthorized, string? Error)> SetAllowLocalNetworkDetailedAsync(bool enabled, string sessionToken)
+        => ToDetailedResult(await SendCommandAsync("SetAllowLocalNetwork", payload: enabled ? "true" : "false", sessionToken: sessionToken));
+
+    public async Task<bool> SetSniInspectionAsync(bool enabled, string sessionToken)
+        => (await SetSniInspectionDetailedAsync(enabled, sessionToken)).Success;
+
+    public async Task<(bool Success, bool Unauthorized, string? Error)> SetSniInspectionDetailedAsync(bool enabled, string sessionToken)
+        => ToDetailedResult(await SendCommandAsync("SetSniInspection", payload: enabled ? "true" : "false", sessionToken: sessionToken));
 
     /// <summary>Abre el modo portal cautivo por unos minutos (requiere tutor). Devuelve el error si falló.</summary>
     public async Task<(bool Success, string? Error)> StartCaptivePortalAsync(int minutes, string sessionToken)
     {
-        var resp = await SendCommandAsync("StartCaptivePortal", payload: minutes.ToString(), sessionToken: sessionToken);
-        return (resp.Success, resp.ErrorMessage);
+        var res = await StartCaptivePortalDetailedAsync(minutes, sessionToken);
+        return (res.Success, res.Error);
     }
 
+    public async Task<(bool Success, bool Unauthorized, string? Error)> StartCaptivePortalDetailedAsync(int minutes, string sessionToken)
+        => ToDetailedResult(await SendCommandAsync("StartCaptivePortal", payload: minutes.ToString(), sessionToken: sessionToken));
+
     public async Task<bool> EndCaptivePortalAsync(string sessionToken)
+        => (await EndCaptivePortalDetailedAsync(sessionToken)).Success;
+
+    public async Task<(bool Success, bool Unauthorized, string? Error)> EndCaptivePortalDetailedAsync(string sessionToken)
+        => ToDetailedResult(await SendCommandAsync("EndCaptivePortal", sessionToken: sessionToken));
+
+    private static (bool Success, bool Unauthorized, string? Error) ToDetailedResult(IpcResponse resp)
     {
-        var resp = await SendCommandAsync("EndCaptivePortal", sessionToken: sessionToken);
-        return resp.Success;
+        if (resp.Success) return (true, false, null);
+        bool unauthorized = string.Equals(resp.ErrorMessage, "No autorizado", StringComparison.OrdinalIgnoreCase);
+        return (false, unauthorized, resp.ErrorMessage);
+    }
+
+    [SupportedOSPlatform("windows")]
+    private static bool VerifyTrustedServerOwner(NamedPipeClientStream pipe)
+    {
+        try
+        {
+            var security = pipe.GetAccessControl();
+            var owner = security.GetOwner(typeof(SecurityIdentifier)) as SecurityIdentifier;
+            if (owner is null) return false;
+            return owner.IsWellKnown(WellKnownSidType.LocalSystemSid)
+                || owner.IsWellKnown(WellKnownSidType.BuiltinAdministratorsSid);
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     // ----------------- Modo de prueba (trial) -----------------

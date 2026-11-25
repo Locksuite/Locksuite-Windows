@@ -100,4 +100,18 @@ public class TrialManagerTests : IDisposable
         tm.CheckAutoRemove();
         Assert.Equal("Active", tm.GetStatus().State);
     }
+
+    [Fact]
+    public void StartTrial_ClampsExtremeDuration_WithoutOverflowInEndUtc()
+    {
+        var tm = NewManager();
+        var start = new DateTimeOffset(2026, 6, 1, 0, 0, 0, TimeSpan.Zero);
+
+        tm.StartTrial(int.MaxValue, TrialEndAction.Prompt, false, start);
+        var s = tm.GetStatus();
+
+        Assert.Equal(525_600, s.DurationMinutes);
+        Assert.Equal(start.AddMinutes(525_600), s.EndUtc);
+        Assert.Equal("Active", s.State);
+    }
 }

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Net;
 using System.Net.NetworkInformation;
@@ -30,25 +31,36 @@ namespace LockSuite.Service.CaptivePortal;
 /// Si un portal redirige a una IP pública propia, puede no completar; ahí el tutor puede usar el modo
 /// de prueba o permitir ese dominio a mano. Documentado en docs/ANALISIS_INCOMODIDADES_Y_FALLAS.md §2.2.
 /// </summary>
-public sealed class CaptivePortalManager
+public sealed class CaptivePortalManager : IDisposable
 {
     private readonly ILogger<CaptivePortalManager> _logger;
     private readonly IWfpManager _wfp;
     private readonly DnsConfigurator _dns;
+    private readonly Func<bool>? _isDnsListening;
+    private readonly Func<IReadOnlyList<IPAddress>>? _localAddressProvider;
     private readonly object _lock = new();
+    private readonly List<ulong> _openedFilterIds = new();
 
     private Timer? _timer;
     private DateTimeOffset _endsAtUtc;
     private bool _active;
+    private bool _disposed;
 
     public const int MaxMinutes = 15;
     public const int DefaultMinutes = 5;
 
-    public CaptivePortalManager(ILogger<CaptivePortalManager> logger, IWfpManager wfp, DnsConfigurator dns)
+    public CaptivePortalManager(
+        ILogger<CaptivePortalManager> logger,
+        IWfpManager wfp,
+        DnsConfigurator dns,
+        Func<bool>? isDnsListening = null,
+        Func<IReadOnlyList<IPAddress>>? localAddressProvider = null)
     {
         _logger = logger;
         _wfp = wfp;
         _dns = dns;
+        _isDnsListening = isDnsListening;
+        _localAddressProvider = localAddressProvider;
     }
 
     public bool IsActive { get { lock (_lock) { return _active && DateTimeOffset.UtcNow < _endsAtUtc; } } }
@@ -77,16 +89,36 @@ public sealed class CaptivePortalManager
         if (minutes > MaxMinutes) minutes = MaxMinutes;
         var window = TimeSpan.FromMinutes(minutes);
 
-        var locals = GetLocalGatewayAndDnsAddresses();
+        var locals = _localAddressProvider is not null
+            ? _localAddressProvider()
+            : GetLocalGatewayAndDnsAddresses();
+        if (locals is null || locals.Count == 0)
+        {
+            _logger.LogWarning("Modo portal cautivo no activado: no se encontraron direcciones locales (gateway/DNS).");
+            return 0;
+        }
 
         lock (_lock)
         {
+            if (_disposed) return 0;
+
+            // Limpiar reglas previas de una ventana anterior antes de abrir las nuevas.
+            if (_openedFilterIds.Count > 0)
+            {
+                _wfp.RemoveDynamicRules(_openedFilterIds);
+                _openedFilterIds.Clear();
+            }
+
             // Abrir (o refrescar) las IP locales por la ventana. Reutiliza la regla temporal por-IP.
             foreach (var ip in locals)
-                _wfp.AllowIpTemporary(ip, window);
+            {
+                ulong id = _wfp.AllowIpTemporary(ip, window);
+                if (id != 0) _openedFilterIds.Add(id);
+            }
 
             // Suspender la redirección NRPT para que el nombre del portal resuelva con el DNS de la red.
             _dns.RemoveNrptRedirect();
+            _dns.FlushDnsCache();
 
             _endsAtUtc = DateTimeOffset.UtcNow.Add(window);
             _active = true;
@@ -110,9 +142,44 @@ public sealed class CaptivePortalManager
             _timer?.Dispose();
             _timer = null;
 
-            // Reaplicar NRPT (vuelve a forzar el DNS local). Las reglas por-IP vencen solas.
-            _dns.ApplyNrptRedirect();
+            if (_openedFilterIds.Count > 0)
+            {
+                _wfp.RemoveDynamicRules(_openedFilterIds);
+                _openedFilterIds.Clear();
+            }
+
+            // Reaplicar NRPT solo si el DNS local sigue escuchando.
+            if (_isDnsListening?.Invoke() ?? true)
+            {
+                _dns.ApplyNrptRedirect();
+            }
+            _dns.FlushDnsCache();
             _logger.LogWarning("Modo portal cautivo finalizado. Redirección DNS restaurada.");
+        }
+    }
+
+    public void Dispose()
+    {
+        lock (_lock)
+        {
+            if (_disposed) return;
+            _disposed = true;
+            _active = false;
+            _timer?.Dispose();
+            _timer = null;
+
+            if (_openedFilterIds.Count > 0)
+            {
+                try
+                {
+                    _wfp.RemoveDynamicRules(_openedFilterIds);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Error al revocar reglas dinámicas del portal cautivo en Dispose.");
+                }
+                _openedFilterIds.Clear();
+            }
         }
     }
 
